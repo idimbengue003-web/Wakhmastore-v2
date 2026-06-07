@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --orange: #1e40af;
+  --orange-light: #3b82f6;
+  --orange-dark: #172554;
+  --orange-bg: #eef2ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-orange: var(--orange);
+  --color-orange-light: var(--orange-light);
+  --color-orange-dark: var(--orange-dark);
+  --color-orange-bg: var(--orange-bg);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Lightweight search shadow */
+.search-bar-shadow {
+  box-shadow: 0 2px 12px rgba(30, 64, 175, 0.15);
+}
+
+/* Card hover - GPU optimized, minimal */
+.annonce-card {
+  will-change: transform;
+  transition: transform 0.15s ease;
+}
+.annonce-card:hover {
+  transform: translateY(-2px);
+}
+
+/* Price color */
+.price-orange {
+  color: #1e40af;
+}
+
+/* Minimal scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+/* Simple fade */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Pulse glow for subscription cards */
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(30, 64, 175, 0.3); }
+  50% { box-shadow: 0 0 20px 4px rgba(30, 64, 175, 0.15); }
+}
+.pulse-glow {
+  animation: pulseGlow 2.5s ease-in-out infinite;
+}
+
+/* Gradient text for headings */
+.gradient-text {
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Shimmer loading effect */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #eef2ff 25%, #dbeafe 50%, #eef2ff 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}

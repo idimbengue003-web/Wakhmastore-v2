@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  name             String
+  phone            String    @unique
+  password         String?
+  role             String    @default("user")
+  userType         String    @default("acheteur")
+  points           Int       @default(0)
+  subscriptionTier String?
+  subscriptionStart String?
+  subscriptionEnd   String?
+  salesCount       Int       @default(0)
+  purchasesCount   Int       @default(0)
+  createdAt        DateTime  @default(now())
+  demands          Demand[]
+  reveals          Reveal[]
+  payments         Payment[]
+}
+
+model Demand {
+  id          String    @id @default(cuid())
+  title       String
+  description String
+  category    String    @default("Autre")
+  budget      Int       @default(0)
+  price       Int       @default(0)
+  quartier    String    @default("Dakar")
+  urgency     String    @default("flexible")
+  photo       String?
+  whatsapp    String
+  status      String    @default("active")
+  annonceType String    @default("cherche")
+  expiresAt   DateTime?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  createdAt   DateTime  @default(now())
+  reveals     Reveal[]
+}
+
+model Reveal {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  demandId  String
+  demand    Demand   @relation(fields: [demandId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  type            String
+  amount          Int
+  currency        String    @default("XOF")
+  status          String    @default("pending")
+  sessionToken    String?
+  orderReference  String?   @unique
+  tierIndex       Int?
+  tierId          String?
+  provider        String    @default("whatsapp")
+  providerTxId    String?
+  netAmount       Int?
+  fees             Int?
+  metadata        String?
+  senderPhone     String?
+  senderName      String?
+  transactionId   String?
+  proofImageUrl   String?
+  adminNote       String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+}
