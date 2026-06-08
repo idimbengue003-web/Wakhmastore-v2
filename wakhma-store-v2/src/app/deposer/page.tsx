@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/store'
 import { CATEGORIES, QUARTIERS, URGENCY_OPTIONS, CATEGORY_EMOJIS, containsPhoneInText, VENDOR_ANNONCE_LIMITS } from '@/lib/constants'
-import { AlertTriangle, Camera, CheckCircle, ArrowLeft, X, Store, Search } from 'lucide-react'
+import { AlertTriangle, Camera, CheckCircle, ArrowLeft, X, Store, Search, Upload, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DeposerPage() {
@@ -27,11 +27,14 @@ export default function DeposerPage() {
   const [quartier, setQuartier] = useState('Dakar')
   const [urgency, setUrgency] = useState('flexible')
   const [whatsapp, setWhatsapp] = useState(user?.phone ? user.phone : '')
-  const [photo, setPhoto] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [phoneWarning, setPhoneWarning] = useState(false)
+  const [photoError, setPhotoError] = useState('')
 
   // Count active ventes for this vendeur
   useEffect(() => {
@@ -55,13 +58,40 @@ export default function DeposerPage() {
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onloadend = () => {
-        setPhoto(reader.result as string)
-      }
-      reader.readAsDataURL(file)
+    setPhotoError('')
+    if (!file) return
+
+    // Client-side validation: file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg']
+    if (!allowedTypes.includes(file.type)) {
+      setPhotoError('Format non supporté. Utilisez JPG, PNG ou WebP.')
+      e.target.value = ''
+      return
     }
+
+    // Client-side validation: file size (max 2MB)
+    const maxSize = 2 * 1024 * 1024
+    if (file.size > maxSize) {
+      setPhotoError('Image trop grande. Maximum 2 Mo.')
+      e.target.value = ''
+      return
+    }
+
+    // Store the file for later upload
+    setSelectedFile(file)
+
+    // Generate a local preview using FileReader (for display only)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const removePhoto = () => {
+    setSelectedFile(null)
+    setPhotoPreview(null)
+    setPhotoError('')
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,6 +106,33 @@ export default function DeposerPage() {
     setLoading(true)
 
     try {
+      // Step 1: Upload photo to Vercel Blob first (if a file is selected)
+      let photoUrl: string | null = null
+      if (selectedFile) {
+        setUploading(true)
+        try {
+          const formData = new FormData()
+          formData.append('photo', selectedFile)
+          const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData })
+          if (!uploadRes.ok) {
+            const uploadData = await uploadRes.json()
+            setError(uploadData.error || 'Erreur upload photo')
+            setUploading(false)
+            setLoading(false)
+            return
+          }
+          const uploadData = await uploadRes.json()
+          photoUrl = uploadData.url
+        } catch {
+          setError('Erreur lors du téléchargement de la photo')
+          setUploading(false)
+          setLoading(false)
+          return
+        }
+        setUploading(false)
+      }
+
+      // Step 2: Create the demand with the Blob URL
       const budgetNum = budget ? parseInt(budget.replace(/\D/g, '')) : 0
       const priceNum = price ? parseInt(price.replace(/\D/g, '')) : 0
 
@@ -91,7 +148,7 @@ export default function DeposerPage() {
           quartier,
           urgency,
           whatsapp,
-          photo,
+          photo: photoUrl,
           annonceType,
         }),
       })
@@ -135,7 +192,8 @@ export default function DeposerPage() {
                 setBudget('')
                 setPrice('')
                 setWhatsapp(user?.phone || '')
-                setPhoto(null)
+                setSelectedFile(null)
+                setPhotoPreview(null)
               }}
               className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
@@ -372,19 +430,32 @@ export default function DeposerPage() {
         {/* Photo */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Photo (optionnel)</label>
-          {photo ? (
+          {photoError && (
+            <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {photoError}
+            </div>
+          )}
+          {photoPreview ? (
             <div className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
-              <button type="button" onClick={() => setPhoto(null)} className="absolute top-2 right-2 p-1 bg-white rounded-full shadow hover:bg-gray-100">
+              <img src={photoPreview} alt="Preview" className="w-full h-40 object-cover rounded-xl" />
+              {uploading && (
+                <div className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                    <span className="text-xs text-white font-medium">Téléchargement...</span>
+                  </div>
+                </div>
+              )}
+              <button type="button" onClick={removePhoto} disabled={uploading} className="absolute top-2 right-2 p-1 bg-white rounded-full shadow hover:bg-gray-100 disabled:opacity-50">
                 <X className="w-4 h-4 text-gray-600" />
               </button>
             </div>
           ) : (
             <label className="flex items-center justify-center gap-2 p-5 border-2 border-dashed border-gray-300 rounded-xl hover:border-orange hover:bg-orange-bg cursor-pointer">
               <Camera className="w-5 h-5 text-gray-400" />
-              <span className="text-xs text-gray-500">Ajouter une photo</span>
-              <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+              <span className="text-xs text-gray-500">Ajouter une photo (JPG, PNG, WebP — max 2 Mo)</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoUpload} className="hidden" />
             </label>
           )}
         </div>
@@ -398,10 +469,22 @@ export default function DeposerPage() {
         ) : (
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-orange hover:bg-orange-dark text-white rounded-xl font-bold text-sm disabled:opacity-50"
+            disabled={loading || uploading}
+            className="w-full py-3 bg-orange hover:bg-orange-dark text-white rounded-xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            {loading ? 'Publication...' : `Publier "${annonceType === 'vends' ? 'Je vends' : 'Je cherche'}"`}
+            {uploading ? (
+              <>
+                <Upload className="w-4 h-4 animate-pulse" />
+                Téléchargement de la photo...
+              </>
+            ) : loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Publication...
+              </>
+            ) : (
+              `Publier "${annonceType === 'vends' ? 'Je vends' : 'Je cherche'}"`
+            )}
           </button>
         )}
       </form>

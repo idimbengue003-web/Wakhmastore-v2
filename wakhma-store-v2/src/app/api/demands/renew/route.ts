@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 import { VENDOR_ANNONCE_LIMITS } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
+import { validateApi, renewDemandSchema } from '@/lib/validations'
 
 export async function POST(request: Request) {
   try {
@@ -13,11 +14,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { demandId } = body
 
-    if (!demandId) {
-      return NextResponse.json({ error: 'demandId requis' }, { status: 400 })
+    const validation = validateApi(renewDemandSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    const { demandId } = validation.data
 
     const demand = await db.demand.findUnique({ where: { id: demandId } })
     if (!demand) {

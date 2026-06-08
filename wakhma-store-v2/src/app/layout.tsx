@@ -12,8 +12,30 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "Wakhma Store - Les bonnes affaires a Dakar",
-  description: "Poste ce que tu veux. Les vendeurs te le trouvent rapidement. Le marketplace #1 de Dakar, Senegal.",
+  title: {
+    default: 'Wakhma Store — Les bonnes affaires à Dakar',
+    template: '%s | Wakhma Store',
+  },
+  description: 'Poste ce que tu veux. Les vendeurs te le trouvent rapidement. Le marketplace #1 de Dakar, Sénégal. Téléphones, électroménager, immobilier et plus.',
+  keywords: ['marketplace', 'Dakar', 'Sénégal', 'annonces', 'vente', 'achat', 'téléphones', 'électroménager'],
+  authors: [{ name: 'Wakhma Store' }],
+  openGraph: {
+    type: 'website',
+    locale: 'fr_SN',
+    url: 'https://wakhmastore-v2.vercel.app',
+    siteName: 'Wakhma Store',
+    title: 'Wakhma Store — Les bonnes affaires à Dakar',
+    description: 'Poste ce que tu veux. Les vendeurs te le trouvent rapidement. Le marketplace #1 de Dakar, Sénégal.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Wakhma Store — Les bonnes affaires à Dakar',
+    description: 'Le marketplace #1 de Dakar, Sénégal.',
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 }
 
 export default function RootLayout({

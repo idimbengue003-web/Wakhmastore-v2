@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { formatFCFA, CATEGORY_EMOJIS } from '@/lib/constants'
-import { Users, FileText, Eye, Shield, CheckCircle, XCircle, RefreshCw, CreditCard, Clock, MessageCircle, Phone, Search, AlertTriangle, DollarSign } from 'lucide-react'
+import { Users, FileText, Eye, Shield, CheckCircle, XCircle, RefreshCw, CreditCard, Clock, MessageCircle, Phone, Search, AlertTriangle, DollarSign, Loader2 } from 'lucide-react'
 
 interface AdminUser {
   id: string
@@ -72,9 +72,21 @@ type AdminTab = 'overview' | 'users' | 'demands' | 'payments'
 
 export default function AdminDashboard() {
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [usersCursor, setUsersCursor] = useState<string | null>(null)
+  const [usersTotal, setUsersTotal] = useState(0)
+  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false)
+
   const [demands, setDemands] = useState<AdminDemand[]>([])
+  const [demandsCursor, setDemandsCursor] = useState<string | null>(null)
+  const [demandsTotal, setDemandsTotal] = useState(0)
+  const [loadingMoreDemands, setLoadingMoreDemands] = useState(false)
+
   const [payments, setPayments] = useState<AdminPayment[]>([])
+  const [paymentsCursor, setPaymentsCursor] = useState<string | null>(null)
+  const [paymentsTotal, setPaymentsTotal] = useState(0)
+  const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [paymentStats, setPaymentStats] = useState<PaymentStats>({ pending: 0, completed: 0, failed: 0, totalRevenue: 0, whatsappPending: 0 })
+
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<AdminTab>('overview')
   const [paymentFilter, setPaymentFilter] = useState<string>('all')
@@ -82,36 +94,77 @@ export default function AdminDashboard() {
   const [rejectNote, setRejectNote] = useState<string>('')
   const [rejectingId, setRejectingId] = useState<string | null>(null)
 
-  const loadUsersAndDemands = useCallback(async () => {
+  const loadUsers = useCallback(async (cursor?: string) => {
+    const isLoadMore = !!cursor
+    if (isLoadMore) setLoadingMoreUsers(true)
     try {
-      const [usersRes, demandsRes] = await Promise.all([
-        fetch('/api/admin/users'),
-        fetch('/api/admin/demands'),
-      ])
-      if (usersRes.ok) {
-        const data = await usersRes.json()
-        setUsers(data.users)
-      }
-      if (demandsRes.ok) {
-        const data = await demandsRes.json()
-        setDemands(data.demands)
+      const params = new URLSearchParams()
+      if (cursor) params.set('cursor', cursor)
+      const res = await fetch(`/api/admin/users?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (isLoadMore) {
+          setUsers((prev) => [...prev, ...data.users])
+        } else {
+          setUsers(data.users)
+        }
+        setUsersCursor(data.nextCursor)
+        setUsersTotal(data.total)
       }
     } catch (error) {
-      console.error('Error:', error)
+      console.error('Error loading users:', error)
+    } finally {
+      if (isLoadMore) setLoadingMoreUsers(false)
     }
   }, [])
 
-  const loadPayments = useCallback(async () => {
+  const loadDemands = useCallback(async (cursor?: string) => {
+    const isLoadMore = !!cursor
+    if (isLoadMore) setLoadingMoreDemands(true)
     try {
-      const statusParam = paymentFilter !== 'all' ? `?status=${paymentFilter}` : ''
-      const res = await fetch(`/api/admin/payments${statusParam}`)
+      const params = new URLSearchParams()
+      if (cursor) params.set('cursor', cursor)
+      const res = await fetch(`/api/admin/demands?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
-        setPayments(data.payments)
+        if (isLoadMore) {
+          setDemands((prev) => [...prev, ...data.demands])
+        } else {
+          setDemands(data.demands)
+        }
+        setDemandsCursor(data.nextCursor)
+        setDemandsTotal(data.total)
+      }
+    } catch (error) {
+      console.error('Error loading demands:', error)
+    } finally {
+      if (isLoadMore) setLoadingMoreDemands(false)
+    }
+  }, [])
+
+  const loadPayments = useCallback(async (cursor?: string) => {
+    const isLoadMore = !!cursor
+    if (isLoadMore) setLoadingMorePayments(true)
+    try {
+      const params = new URLSearchParams()
+      if (paymentFilter !== 'all') params.set('status', paymentFilter)
+      if (cursor) params.set('cursor', cursor)
+      const res = await fetch(`/api/admin/payments?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (isLoadMore) {
+          setPayments((prev) => [...prev, ...data.payments])
+        } else {
+          setPayments(data.payments)
+        }
+        setPaymentsCursor(data.nextCursor)
+        setPaymentsTotal(data.total)
         setPaymentStats(data.stats)
       }
     } catch (error) {
       console.error('Error loading payments:', error)
+    } finally {
+      if (isLoadMore) setLoadingMorePayments(false)
     }
   }, [paymentFilter])
 
@@ -119,16 +172,19 @@ export default function AdminDashboard() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      await Promise.all([loadUsersAndDemands(), loadPayments()])
+      await Promise.all([loadUsers(), loadDemands(), loadPayments()])
       if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [loadUsersAndDemands, loadPayments])
+  }, [loadUsers, loadDemands, loadPayments])
 
   const refreshData = async () => {
     setLoading(true)
-    await Promise.all([loadUsersAndDemands(), loadPayments()])
+    setUsersCursor(null)
+    setDemandsCursor(null)
+    setPaymentsCursor(null)
+    await Promise.all([loadUsers(), loadDemands(), loadPayments()])
     setLoading(false)
   }
 
@@ -157,7 +213,8 @@ export default function AdminDashboard() {
       if (res.ok) {
         await loadPayments()
         if (action === 'validate') {
-          await loadUsersAndDemands()
+          await loadUsers()
+          await loadDemands()
         }
       } else {
         alert(data.error || 'Erreur')
@@ -184,7 +241,7 @@ export default function AdminDashboard() {
   }
 
   const activeDemands = demands.filter((d) => d.status === 'active')
-  const totalUsers = users.length
+  const totalUsers = usersTotal
   const totalReveals = users.reduce((sum, u) => sum + u._count.reveals, 0)
 
   return (
@@ -220,8 +277,8 @@ export default function AdminDashboard() {
             }`}
           >
             {tab === 'overview' && <><Eye className="w-4 h-4" /> Vue d&apos;ensemble</>}
-            {tab === 'users' && <><Users className="w-4 h-4" /> Utilisateurs ({totalUsers})</>}
-            {tab === 'demands' && <><FileText className="w-4 h-4" /> Annonces ({demands.length})</>}
+            {tab === 'users' && <><Users className="w-4 h-4" /> Utilisateurs ({usersTotal})</>}
+            {tab === 'demands' && <><FileText className="w-4 h-4" /> Annonces ({demandsTotal})</>}
             {tab === 'payments' && (
               <>
                 <CreditCard className="w-4 h-4" /> Paiements
@@ -370,58 +427,100 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+              {/* Load More Users */}
+              <div className="p-4 border-t border-gray-100 flex justify-center">
+                {loadingMoreUsers ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Chargement...</span>
+                  </div>
+                ) : usersCursor ? (
+                  <button
+                    onClick={() => loadUsers(usersCursor)}
+                    className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Charger plus
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400">
+                    {users.length} sur {usersTotal} utilisateurs chargés
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
           {/* Demands */}
           {activeTab === 'demands' && (
-            <div className="space-y-3">
-              {demands.map((demand) => (
-                <div key={demand.id} className="bg-white rounded-2xl shadow-md border border-gray-200 p-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm">{CATEGORY_EMOJIS[demand.category] || '📦'}</span>
-                        <h3 className="text-sm font-semibold text-gray-900 truncate">{demand.title}</h3>
-                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${
-                          demand.status === 'active' ? 'bg-indigo-100 text-blue-900' :
-                          demand.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
-                        }`}>
-                          {demand.status}
-                        </span>
+            <div>
+              <div className="space-y-3">
+                {demands.map((demand) => (
+                  <div key={demand.id} className="bg-white rounded-2xl shadow-md border border-gray-200 p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm">{CATEGORY_EMOJIS[demand.category] || '📦'}</span>
+                          <h3 className="text-sm font-semibold text-gray-900 truncate">{demand.title}</h3>
+                          <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${
+                            demand.status === 'active' ? 'bg-indigo-100 text-blue-900' :
+                            demand.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {demand.status}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 line-clamp-1">{demand.description}</p>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                          <span>Par {demand.user.name}</span>
+                          <span>{demand.quartier}</span>
+                          {demand.budget > 0 && <span>{formatFCFA(demand.budget)}</span>}
+                          <span>{demand.reveals.length} révélations</span>
+                        </div>
                       </div>
-                      <p className="text-xs text-gray-500 line-clamp-1">{demand.description}</p>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
-                        <span>Par {demand.user.name}</span>
-                        <span>{demand.quartier}</span>
-                        {demand.budget > 0 && <span>{formatFCFA(demand.budget)}</span>}
-                        <span>{demand.reveals.length} révélations</span>
+                      <div className="flex gap-2 shrink-0">
+                        {demand.status !== 'active' && (
+                          <button
+                            onClick={() => handleDemandStatus(demand.id, 'active')}
+                            className="px-3 py-1.5 bg-indigo-100 text-blue-900 rounded-lg text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            Approuver
+                          </button>
+                        )}
+                        {demand.status !== 'rejected' && (
+                          <button
+                            onClick={() => handleDemandStatus(demand.id, 'rejected')}
+                            className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors flex items-center gap-1"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Rejeter
+                          </button>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      {demand.status !== 'active' && (
-                        <button
-                          onClick={() => handleDemandStatus(demand.id, 'active')}
-                          className="px-3 py-1.5 bg-indigo-100 text-blue-900 rounded-lg text-xs font-medium hover:bg-indigo-200 transition-colors flex items-center gap-1"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          Approuver
-                        </button>
-                      )}
-                      {demand.status !== 'rejected' && (
-                        <button
-                          onClick={() => handleDemandStatus(demand.id, 'rejected')}
-                          className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors flex items-center gap-1"
-                        >
-                          <XCircle className="w-3.5 h-3.5" />
-                          Rejeter
-                        </button>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+              {/* Load More Demands */}
+              <div className="mt-6 flex justify-center">
+                {loadingMoreDemands ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Chargement...</span>
+                  </div>
+                ) : demandsCursor ? (
+                  <button
+                    onClick={() => loadDemands(demandsCursor)}
+                    className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Charger plus
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400">
+                    {demands.length} sur {demandsTotal} annonces chargées
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -638,6 +737,27 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   ))
+                )}
+              </div>
+
+              {/* Load More Payments */}
+              <div className="flex justify-center">
+                {loadingMorePayments ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Chargement...</span>
+                  </div>
+                ) : paymentsCursor ? (
+                  <button
+                    onClick={() => loadPayments(paymentsCursor)}
+                    className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Charger plus
+                  </button>
+                ) : (
+                  <span className="text-xs text-gray-400">
+                    {payments.length} sur {paymentsTotal} paiements chargés
+                  </span>
                 )}
               </div>
             </div>

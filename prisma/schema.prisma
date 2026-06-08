@@ -24,6 +24,9 @@ model User {
   demands          Demand[]
   reveals          Reveal[]
   payments         Payment[]
+
+  @@index([role])
+  @@index([subscriptionTier])
 }
 
 model Demand {
@@ -44,6 +47,13 @@ model Demand {
   user        User      @relation(fields: [userId], references: [id])
   createdAt   DateTime  @default(now())
   reveals     Reveal[]
+
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+  @@index([annonceType])
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Reveal {
@@ -53,6 +63,9 @@ model Reveal {
   demandId  String
   demand    Demand   @relation(fields: [demandId], references: [id])
   createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([demandId])
 }
 
 model Payment {
@@ -79,4 +92,7 @@ model Payment {
   adminNote       String?
   createdAt       DateTime  @default(now())
   completedAt     DateTime?
+
+  @@index([userId])
+  @@index([status])
 }

@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { DemandCard } from '@/components/DemandCard'
 import { CATEGORIES, CATEGORY_EMOJIS } from '@/lib/constants'
-import { Search, SlidersHorizontal, X } from 'lucide-react'
+import { Search, SlidersHorizontal, X, Loader2, CheckCircle } from 'lucide-react'
 
 interface Demand {
   id: string
@@ -34,9 +34,45 @@ function AnnoncesContent() {
   const searchParams = useSearchParams()
   const [demands, setDemands] = useState<Demand[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState(searchParams.get('category') || 'Toutes')
   const [showFilters, setShowFilters] = useState(false)
+
+  const fetchDemands = useCallback(async (cursor?: string) => {
+    const isLoadMore = !!cursor
+    if (isLoadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
+
+    try {
+      const params = new URLSearchParams()
+      if (category && category !== 'Toutes') params.set('category', category)
+      if (search) params.set('search', search)
+      if (cursor) params.set('cursor', cursor)
+
+      const res = await fetch(`/api/demands?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (isLoadMore) {
+          setDemands((prev) => [...prev, ...data.demands])
+        } else {
+          setDemands(data.demands)
+        }
+        setNextCursor(data.nextCursor)
+        setTotal(data.total)
+      }
+    } catch (error) {
+      console.error('Error fetching demands:', error)
+    } finally {
+      setLoading(false)
+      setLoadingMore(false)
+    }
+  }, [category, search])
 
   useEffect(() => {
     let cancelled = false
@@ -52,6 +88,8 @@ function AnnoncesContent() {
         if (res.ok) {
           const data = await res.json()
           setDemands(data.demands)
+          setNextCursor(data.nextCursor)
+          setTotal(data.total)
         }
       } catch (error) {
         console.error('Error fetching demands:', error)
@@ -66,6 +104,14 @@ function AnnoncesContent() {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
   }
+
+  const handleLoadMore = () => {
+    if (nextCursor) {
+      fetchDemands(nextCursor)
+    }
+  }
+
+  const hasMore = nextCursor !== null
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -172,7 +218,7 @@ function AnnoncesContent() {
         <>
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-gray-500">
-              {demands.length} annonce{demands.length > 1 ? 's' : ''} trouvée{demands.length > 1 ? 's' : ''}
+              {demands.length} annonce{demands.length > 1 ? 's' : ''} chargée{demands.length > 1 ? 's' : ''} sur {total}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -182,6 +228,28 @@ function AnnoncesContent() {
                 demand={demand}
               />
             ))}
+          </div>
+
+          {/* Load More Button */}
+          <div className="mt-8 flex justify-center">
+            {loadingMore ? (
+              <div className="flex items-center gap-2 px-6 py-3 text-gray-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm font-medium">Chargement...</span>
+              </div>
+            ) : hasMore ? (
+              <button
+                onClick={handleLoadMore}
+                className="px-8 py-3 bg-orange hover:bg-orange-dark text-white rounded-xl font-medium text-sm transition-colors shadow-sm flex items-center gap-2"
+              >
+                Charger plus
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-6 py-3 text-gray-400">
+                <CheckCircle className="w-5 h-5" />
+                <span className="text-sm font-medium">Toutes les annonces chargées</span>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { Search, ArrowRight, Zap, Shield, TrendingUp, MapPin, MessageCircle, CheckCircle } from 'lucide-react'
 import { CATEGORIES, CATEGORY_EMOJIS, formatFCFA, timeAgo } from '@/lib/constants'
 import { useState, useEffect, useMemo } from 'react'
@@ -239,12 +240,22 @@ function HomeAnnonceCard({ annonce }: { annonce: Annonce }) {
       <div className="annonce-card bg-white rounded-xl border border-gray-200 overflow-hidden group cursor-pointer">
         {annonce.photo ? (
           <div className="relative h-40 sm:h-44 bg-gray-100 overflow-hidden">
-            <img
-              src={annonce.photo}
-              alt={annonce.title}
-              loading="lazy"
-              className="w-full h-full object-cover"
-            />
+            {annonce.photo!.startsWith('data:') ? (
+              <img
+                src={annonce.photo!}
+                alt={annonce.title}
+                loading="lazy"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <Image
+                src={annonce.photo!}
+                alt={annonce.title}
+                fill
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+              />
+            )}
             <span className="absolute top-2 left-2 px-2 py-0.5 bg-white/90 rounded-md text-[10px] font-semibold text-gray-700">
               {emoji} {annonce.category}
             </span>

@@ -11,6 +11,7 @@ import {
   CreditCard, MessageCircle
 } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 interface PaymentRecord {
   id: string
@@ -351,9 +352,12 @@ export default function ProfilPage() {
                   <div className="flex gap-3">
                     {/* Emoji/photo */}
                     {demand.photo ? (
-                      <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-gray-100">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={demand.photo} alt="" className="w-full h-full object-cover" />
+                      <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-gray-100 relative">
+                        {demand.photo.startsWith('data:') ? (
+                          <img src={demand.photo} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Image src={demand.photo} alt="" width={64} height={64} className="w-full h-full object-cover" />
+                        )}
                       </div>
                     ) : (
                       <div className="w-16 h-16 rounded-lg bg-orange-bg flex items-center justify-center shrink-0">

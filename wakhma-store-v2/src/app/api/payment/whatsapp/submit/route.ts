@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { autoMigrate } from '@/lib/migrate'
 import { POINTS_TIERS, SUBSCRIPTION_TIERS } from '@/lib/constants'
+import { rateLimiters } from '@/lib/rate-limit'
+import { validateApi, whatsappPaymentSchema } from '@/lib/validations'
 
 const STORE_WAVE_NUMBER = process.env.STORE_WAVE_NUMBER || '771234567'
 const STORE_WAVE_NAME = process.env.STORE_WAVE_NAME || 'Wakhma Store'
@@ -16,8 +18,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Authentification requise' }, { status: 401 })
     }
 
+    // Rate limiting - 5 payment submissions per hour per user
+    const { success: paymentAllowed } = rateLimiters.payment(session.userId)
+    if (!paymentAllowed) {
+      return NextResponse.json(
+        { error: 'Trop de requêtes. Réessayez plus tard.' },
+        { status: 429 }
+      )
+    }
+
     const body = await request.json()
-    const { type, tierIndex, tierId, senderPhone, senderName, transactionId, proofImageUrl } = body
+
+    // Clean senderPhone before validation
+    if (body.senderPhone && typeof body.senderPhone === 'string') {
+      body.senderPhone = body.senderPhone.replace(/[\s+]/g, '').replace(/^221/, '')
+    }
+
+    const validation = validateApi(whatsappPaymentSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+    const { type, tierIndex, tierId, senderPhone } = validation.data
+    const { senderName, transactionId, proofImageUrl } = body as Record<string, unknown>
 
     let amount = 0
     let label = ''
@@ -25,7 +47,7 @@ export async function POST(request: Request) {
     let resolvedTierId: string | null = null
 
     if (type === 'points') {
-      if (tierIndex < 0 || tierIndex >= POINTS_TIERS.length) {
+      if (tierIndex === undefined || tierIndex < 0 || tierIndex >= POINTS_TIERS.length) {
         return NextResponse.json({ error: 'Pack invalide' }, { status: 400 })
       }
       const tier = POINTS_TIERS[tierIndex]
@@ -39,13 +61,7 @@ export async function POST(request: Request) {
       }
       amount = tier.price
       label = `Abonnement ${tier.name}`
-      resolvedTierId = tierId
-    } else {
-      return NextResponse.json({ error: 'Type de paiement invalide' }, { status: 400 })
-    }
-
-    if (!senderPhone || senderPhone.trim().length < 8) {
-      return NextResponse.json({ error: 'Numéro de téléphone expéditeur requis' }, { status: 400 })
+      resolvedTierId = tierId ?? null
     }
 
     const orderReference = `WK-WA-${Date.now()}-${session.userId.slice(0, 8)}`
@@ -61,10 +77,10 @@ export async function POST(request: Request) {
         tierIndex: resolvedTierIndex,
         tierId: resolvedTierId,
         provider: 'whatsapp',
-        senderPhone: senderPhone.trim(),
-        senderName: senderName?.trim() || null,
-        transactionId: transactionId?.trim() || null,
-        proofImageUrl: proofImageUrl || null,
+        senderPhone: senderPhone.trim ? senderPhone.trim() : senderPhone,
+        senderName: typeof senderName === 'string' ? senderName.trim() : null,
+        transactionId: typeof transactionId === 'string' ? transactionId.trim() : null,
+        proofImageUrl: typeof proofImageUrl === 'string' ? proofImageUrl : null,
       },
     })
 
@@ -95,7 +111,6 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('[WhatsApp Payment] Submit error:', error)
-    const msg = error instanceof Error ? error.message : String(error)
-    return NextResponse.json({ error: `Erreur serveur: ${msg}` }, { status: 500 })
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }

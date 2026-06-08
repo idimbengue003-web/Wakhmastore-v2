@@ -2,37 +2,36 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { hashPassword, signToken } from '@/lib/auth'
 import { autoMigrate } from '@/lib/migrate'
+import { rateLimiters } from '@/lib/rate-limit'
+import { validateApi, registerSchema } from '@/lib/validations'
 
 export async function POST(request: Request) {
   try {
+    // Rate limiting - 3 registrations per hour per IP
+    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const { success: registerAllowed } = rateLimiters.register(ip)
+    if (!registerAllowed) {
+      return NextResponse.json(
+        { error: 'Trop de tentatives. Réessayez plus tard.' },
+        { status: 429 }
+      )
+    }
+
     await autoMigrate()
 
     const body = await request.json()
-    const { name, phone, password, userType } = body
 
-    if (!name || !phone || !password) {
-      return NextResponse.json(
-        { error: 'Nom, téléphone et mot de passe requis' },
-        { status: 400 }
-      )
+    // Clean phone before validation
+    if (body.phone && typeof body.phone === 'string') {
+      body.phone = body.phone.replace(/[\s+]/g, '').replace(/^221/, '')
     }
 
-    const validType = userType === 'vendeur' ? 'vendeur' : 'acheteur'
-
-    const phoneClean = phone.replace(/[\s+]/g, '').replace(/^221/, '')
-    if (!/^7[0-9]\d{7}$/.test(phoneClean)) {
-      return NextResponse.json(
-        { error: 'Numéro de téléphone invalide (format: 7X XXX XX XX)' },
-        { status: 400 }
-      )
+    const validation = validateApi(registerSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
-
-    if (password.length < 4) {
-      return NextResponse.json(
-        { error: 'Le mot de passe doit contenir au moins 4 caractères' },
-        { status: 400 }
-      )
-    }
+    const { name, phone, password, userType } = validation.data
+    const phoneClean = phone
 
     const existing = await db.user.findUnique({ where: { phone: phoneClean } })
     if (existing) {
@@ -50,7 +49,7 @@ export async function POST(request: Request) {
         phone: phoneClean,
         password: hashedPassword,
         role: 'user',
-        userType: validType,
+        userType,
         points: 0,
         salesCount: 0,
         purchasesCount: 0,
@@ -90,9 +89,8 @@ export async function POST(request: Request) {
     return response
   } catch (error) {
     console.error('Register error:', error)
-    const msg = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { error: 'Erreur lors de l\'inscription', detail: msg },
+      { error: 'Erreur lors de l\'inscription' },
       { status: 500 }
     )
   }

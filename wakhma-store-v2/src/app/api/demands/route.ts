@@ -3,6 +3,8 @@ import { db } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 import { maskPhonesInText, containsPhoneInText, maskPhone, VENDOR_ANNONCE_LIMITS } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
+import { rateLimiters } from '@/lib/rate-limit'
+import { validateApi, createDemandSchema } from '@/lib/validations'
 import type { Demand, User, Reveal } from '@prisma/client'
 
 type DemandWithRelations = Demand & { user: User; reveals: Reveal[] }
@@ -14,11 +16,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const category = searchParams.get('category')
     const search = searchParams.get('search')
-    const limitParam = searchParams.get('limit')
     const annonceType = searchParams.get('annonceType')
     const userId = searchParams.get('userId')
     const includeExpired = searchParams.get('includeExpired') === 'true'
-    const limit = limitParam ? parseInt(limitParam) : undefined
+    const cursor = searchParams.get('cursor') || undefined
+    const limitParam = searchParams.get('limit')
+    const limit = Math.min(Math.max(parseInt(limitParam || '20'), 1), 50)
 
     await db.demand.updateMany({
       where: {
@@ -53,16 +56,25 @@ export async function GET(request: Request) {
       ]
     }
 
-    const demands = await db.demand.findMany({
-      where,
-      include: { user: true, reveals: true },
-      orderBy: { createdAt: 'desc' },
-      ...(limit ? { take: limit } : {}),
-    })
+    const [demands, total] = await Promise.all([
+      db.demand.findMany({
+        where,
+        include: { user: true, reveals: true },
+        orderBy: { createdAt: 'desc' },
+        take: limit + 1,
+        skip: cursor ? 1 : 0,
+        cursor: cursor ? { id: cursor } : undefined,
+      }),
+      db.demand.count({ where }),
+    ])
+
+    const hasMore = demands.length > limit
+    const paginatedDemands = hasMore ? demands.slice(0, limit) : demands
+    const nextCursor = hasMore ? paginatedDemands[paginatedDemands.length - 1].id : null
 
     const session = await getSession()
 
-    const maskedDemands = (demands as DemandWithRelations[]).map((d) => {
+    const maskedDemands = (paginatedDemands as DemandWithRelations[]).map((d) => {
       const isOwner = session?.userId === d.userId
       const hasRevealed = d.reveals.some((r) => r.userId === session?.userId)
 
@@ -91,11 +103,10 @@ export async function GET(request: Request) {
       }
     })
 
-    return NextResponse.json({ demands: maskedDemands })
+    return NextResponse.json({ demands: maskedDemands, nextCursor, total })
   } catch (error) {
     console.error('Demands GET error:', error)
-    const msg = error instanceof Error ? error.message : String(error)
-    return NextResponse.json({ error: 'Erreur serveur', detail: msg }, { status: 500 })
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }
 
@@ -108,15 +119,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Authentification requise' }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { title, description, category, budget, price, quartier, urgency, whatsapp, photo, annonceType } = body
-
-    if (!title || !description || !whatsapp) {
+    // Rate limiting - 10 demands per hour per user
+    const { success: demandAllowed } = rateLimiters.createDemand(session.userId)
+    if (!demandAllowed) {
       return NextResponse.json(
-        { error: 'Titre, description et WhatsApp requis' },
-        { status: 400 }
+        { error: 'Trop de requêtes. Réessayez plus tard.' },
+        { status: 429 }
       )
     }
+
+    const body = await request.json()
+
+    // Clean whatsapp before validation
+    if (body.whatsapp && typeof body.whatsapp === 'string') {
+      body.whatsapp = body.whatsapp.replace(/[\s+]/g, '').replace(/^221/, '')
+    }
+
+    const validation = validateApi(createDemandSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+    const { title, description, category, budget, price, quartier, urgency, whatsapp, photo, annonceType } = validation.data
 
     if (containsPhoneInText(title) || containsPhoneInText(description)) {
       return NextResponse.json(
@@ -196,12 +219,12 @@ export async function POST(request: Request) {
       data: {
         title: fullTitle,
         description,
-        category: category || 'Autre',
-        budget: budget || 0,
-        price: price || 0,
-        quartier: quartier || 'Dakar',
-        urgency: urgency || 'flexible',
-        whatsapp: whatsapp.replace(/\s/g, ''),
+        category,
+        budget,
+        price,
+        quartier,
+        urgency,
+        whatsapp,
         photo: photo || null,
         annonceType: isVente ? 'vends' : 'cherche',
         status: 'active',
@@ -213,7 +236,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ demand }, { status: 201 })
   } catch (error) {
     console.error('Demands POST error:', error)
-    const msg = error instanceof Error ? error.message : String(error)
-    return NextResponse.json({ error: 'Erreur serveur', detail: msg }, { status: 500 })
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }

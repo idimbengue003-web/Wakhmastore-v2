@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { CATEGORY_EMOJIS, formatFCFA, timeAgo } from '@/lib/constants'
 import { MapPin, Clock, MessageCircle, CheckCircle, Eye } from 'lucide-react'
 
@@ -60,8 +61,11 @@ export function DemandCard({ demand }: DemandCardProps) {
         {/* Photo or emoji header */}
         {demand.photo ? (
           <div className="h-36 bg-gray-100 relative overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={demand.photo} alt={demand.title} className="w-full h-full object-cover" />
+            {demand.photo.startsWith('data:') ? (
+              <img src={demand.photo} alt={demand.title} className="w-full h-full object-cover" />
+            ) : (
+              <Image src={demand.photo} alt={demand.title} fill className="object-cover" sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw" />
+            )}
             <span className="absolute top-2 left-2 px-2 py-0.5 bg-white/90 rounded-md text-[10px] font-semibold text-gray-700">
               {emoji} {demand.category}
             </span>

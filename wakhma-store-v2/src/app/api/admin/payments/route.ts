@@ -16,21 +16,33 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status') || undefined
     const provider = searchParams.get('provider') || undefined
+    const cursor = searchParams.get('cursor') || undefined
+    const limitParam = searchParams.get('limit')
+    const limit = Math.min(Math.max(parseInt(limitParam || '20'), 1), 50)
 
     const where: Record<string, unknown> = {}
     if (status) where.status = status
     if (provider) where.provider = provider
 
-    const payments = await db.payment.findMany({
-      where,
-      include: {
-        user: {
-          select: { id: true, name: true, phone: true, points: true, subscriptionTier: true },
+    const [payments, total] = await Promise.all([
+      db.payment.findMany({
+        where,
+        include: {
+          user: {
+            select: { id: true, name: true, phone: true, points: true, subscriptionTier: true },
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    })
+        orderBy: { createdAt: 'desc' },
+        take: limit + 1,
+        skip: cursor ? 1 : 0,
+        cursor: cursor ? { id: cursor } : undefined,
+      }),
+      db.payment.count({ where }),
+    ])
+
+    const hasMore = payments.length > limit
+    const paginatedPayments = hasMore ? payments.slice(0, limit) : payments
+    const nextCursor = hasMore ? paginatedPayments[paginatedPayments.length - 1].id : null
 
     const stats = {
       pending: await db.payment.count({ where: { status: 'pending' } }),
@@ -43,7 +55,7 @@ export async function GET(request: Request) {
       whatsappPending: await db.payment.count({ where: { status: 'pending', provider: 'whatsapp' } }),
     }
 
-    return NextResponse.json({ payments, stats })
+    return NextResponse.json({ payments: paginatedPayments, nextCursor, total, stats })
   } catch (error) {
     console.error('[Admin Payments] GET error:', error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })

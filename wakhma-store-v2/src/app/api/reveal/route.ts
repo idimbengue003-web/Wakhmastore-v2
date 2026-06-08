@@ -3,6 +3,8 @@ import { db } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 import { getRevealPrice } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
+import { rateLimiters } from '@/lib/rate-limit'
+import { validateApi, revealSchema } from '@/lib/validations'
 import type { Demand, Reveal } from '@prisma/client'
 
 type DemandWithReveals = Demand & { reveals: Reveal[] }
@@ -15,12 +17,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Authentification requise' }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { demandId } = body
-
-    if (!demandId) {
-      return NextResponse.json({ error: 'demandId requis' }, { status: 400 })
+    // Rate limiting - 30 reveals per hour per user
+    const { success: revealAllowed } = rateLimiters.reveal(session.userId)
+    if (!revealAllowed) {
+      return NextResponse.json(
+        { error: 'Trop de requêtes. Réessayez plus tard.' },
+        { status: 429 }
+      )
     }
+
+    const body = await request.json()
+
+    const validation = validateApi(revealSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
+    }
+    const { demandId } = validation.data
 
     const demand = await db.demand.findUnique({
       where: { id: demandId },

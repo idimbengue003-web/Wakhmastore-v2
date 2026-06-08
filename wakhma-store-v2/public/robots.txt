@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /profil
+Disallow: /deposer
+Disallow: /recharge
+
+Sitemap: https://wakhmastore-v2.vercel.app/sitemap.xml

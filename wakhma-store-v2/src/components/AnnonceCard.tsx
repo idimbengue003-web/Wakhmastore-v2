@@ -1,6 +1,7 @@
 'use client'
 
 import { MapPin, MessageCircle, CheckCircle, Clock } from 'lucide-react'
+import Image from 'next/image'
 import { CATEGORY_EMOJIS, formatFCFA } from '@/lib/constants'
 import Link from 'next/link'
 
@@ -34,11 +35,21 @@ export function AnnonceCard({ annonce }: { annonce: Annonce }) {
     <Link href={`/annonce/${annonce.id}`} className="block">
       <div className="annonce-card bg-white rounded-xl border border-gray-200 overflow-hidden group cursor-pointer">
         <div className="relative h-44 sm:h-48 bg-gray-100 overflow-hidden">
-          <img
-            src={annonce.image}
-            alt={annonce.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+          {annonce.image.startsWith('data:') ? (
+            <img
+              src={annonce.image}
+              alt={annonce.title}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+          ) : (
+            <Image
+              src={annonce.image}
+              alt={annonce.title}
+              fill
+              className="object-cover group-hover:scale-105 transition-transform duration-300"
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
+          )}
           <div className="absolute top-2 left-2">
             <span className="px-2 py-0.5 bg-white/95 rounded-md text-[10px] font-semibold text-gray-700 shadow-sm">
               {emoji} {annonce.category}

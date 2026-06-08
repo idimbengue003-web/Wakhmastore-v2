@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getSession } from '@/lib/auth'
+import { validateApi, deleteDemandSchema } from '@/lib/validations'
 
 export async function POST(request: Request) {
   try {
@@ -10,11 +11,12 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { demandId } = body
 
-    if (!demandId) {
-      return NextResponse.json({ error: 'demandId requis' }, { status: 400 })
+    const validation = validateApi(deleteDemandSchema, body)
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 })
     }
+    const { demandId } = validation.data
 
     const demand = await db.demand.findUnique({ where: { id: demandId } })
     if (!demand) {
