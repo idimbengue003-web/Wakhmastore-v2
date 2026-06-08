@@ -5,7 +5,7 @@ import { getRevealPrice } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
 import { rateLimiters } from '@/lib/rate-limit'
 import { validateApi, revealSchema } from '@/lib/validations'
-import type { Demand, Reveal } from '@prisma/client'
+import type { Demand, Reveal } from '@/generated/prisma'
 
 type DemandWithReveals = Demand & { reveals: Reveal[] }
 
