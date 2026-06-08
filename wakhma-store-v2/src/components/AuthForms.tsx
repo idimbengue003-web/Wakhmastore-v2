@@ -7,42 +7,22 @@ import { Search, Store, Loader2 } from 'lucide-react'
 
 const GOOGLE_CLIENT_ID = '645891430275-48re5e0v1nagsnei4al8pel4ff9dknq1.apps.googleusercontent.com'
 
-// ─── Shared GIS script loader ───────────────────────────────────────────
-// Ensures the Google Identity Services script is loaded exactly once
-// across all component instances, and tracks readiness state.
-
+// ─── Google GIS script loader (singleton) ───────────────────────────────
 let gisLoadPromise: Promise<void> | null = null
+let gisLoaded = false
 
 function loadGoogleGisScript(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve()
-
-  // Already loaded
-  if (window.google?.accounts?.id) {
-    return Promise.resolve()
-  }
-
-  // Already loading
+  if (gisLoaded && window.google?.accounts?.id) return Promise.resolve()
   if (gisLoadPromise) return gisLoadPromise
 
   gisLoadPromise = new Promise<void>((resolve, reject) => {
-    // Check if script tag already exists
     const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]')
     if (existing) {
-      const checkReady = setInterval(() => {
-        if (window.google?.accounts?.id) {
-          clearInterval(checkReady)
-          resolve()
-        }
+      const check = setInterval(() => {
+        if (window.google?.accounts?.id) { clearInterval(check); gisLoaded = true; resolve() }
       }, 100)
-      setTimeout(() => {
-        clearInterval(checkReady)
-        if (window.google?.accounts?.id) {
-          resolve()
-        } else {
-          gisLoadPromise = null
-          reject(new Error('GIS load timeout'))
-        }
-      }, 15_000)
+      setTimeout(() => { clearInterval(check); gisLoaded ? resolve() : (gisLoadPromise = null, reject(new Error('timeout'))) }, 10_000)
       return
     }
 
@@ -50,29 +30,13 @@ function loadGoogleGisScript(): Promise<void> {
     script.src = 'https://accounts.google.com/gsi/client'
     script.async = true
     script.defer = true
-
     script.onload = () => {
-      const checkReady = setInterval(() => {
-        if (window.google?.accounts?.id) {
-          clearInterval(checkReady)
-          resolve()
-        }
+      const check = setInterval(() => {
+        if (window.google?.accounts?.id) { clearInterval(check); gisLoaded = true; resolve() }
       }, 50)
-      setTimeout(() => {
-        clearInterval(checkReady)
-        if (window.google?.accounts?.id) resolve()
-        else {
-          gisLoadPromise = null
-          reject(new Error('GIS init timeout'))
-        }
-      }, 5_000)
+      setTimeout(() => { clearInterval(check); gisLoaded ? resolve() : (gisLoadPromise = null, reject(new Error('init timeout'))) }, 5_000)
     }
-
-    script.onerror = () => {
-      gisLoadPromise = null
-      reject(new Error('Failed to load GIS script'))
-    }
-
+    script.onerror = () => { gisLoadPromise = null; reject(new Error('load failed')) }
     document.head.appendChild(script)
   })
 
@@ -80,7 +44,6 @@ function loadGoogleGisScript(): Promise<void> {
 }
 
 // ─── Google SVG Icon ────────────────────────────────────────────────────
-
 function GoogleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -92,47 +55,32 @@ function GoogleIcon({ className }: { className?: string }) {
   )
 }
 
-// ─── Google Sign-In Button (shared between Login & Register) ────────────
-// Uses google.accounts.id.renderButton() for the official Google button
-// with a custom fallback button if GIS fails to load.
-
+// ─── Google Sign-In Button ──────────────────────────────────────────────
+// Strategy: custom button always visible → on click → prompt() → fallback OAuth2 popup
 interface GoogleSignInButtonProps {
   onSuccess: () => void
   onError: (error: string) => void
 }
 
 function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
-  const [googleReady, setGoogleReady] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [gisFailed, setGisFailed] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'loading' | 'submitting'>('idle')
+  const initializedRef = useRef(false)
   const callbackRef = useRef(onSuccess)
   const errorRef = useRef(onError)
-  const initializedRef = useRef(false)
-  const buttonContainerRef = useRef<HTMLDivElement>(null)
-  const popupRef = useRef<Window | null>(null)
 
-  // Keep refs in sync without re-initializing Google
-  useEffect(() => {
-    callbackRef.current = onSuccess
-    errorRef.current = onError
-  }, [onSuccess, onError])
+  useEffect(() => { callbackRef.current = onSuccess }, [onSuccess])
+  useEffect(() => { errorRef.current = onError }, [onError])
 
-  const handleGoogleCredentialResponse = useCallback(async (response: { credential: string }) => {
-    if (!response.credential) {
-      errorRef.current('Réponse Google invalide')
-      setSubmitting(false)
-      return
-    }
-
+  // Handle the credential returned by Google
+  const handleCredential = useCallback(async (credential: string) => {
+    setStatus('submitting')
     try {
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential: response.credential }),
+        body: JSON.stringify({ credential }),
       })
-
       const data = await res.json()
-
       if (res.ok) {
         callbackRef.current()
       } else {
@@ -141,176 +89,150 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
     } catch {
       errorRef.current('Erreur de connexion au serveur')
     } finally {
-      setSubmitting(false)
+      setStatus('idle')
     }
   }, [])
 
-  // Initialize Google GIS and render the official button
-  const initializeAndRender = useCallback(() => {
-    if (!window.google?.accounts?.id) return
-    if (initializedRef.current) {
-      setGoogleReady(true)
-      return
+  // Initialize GIS (call once)
+  const ensureInitialized = useCallback(async (): Promise<boolean> => {
+    if (initializedRef.current && window.google?.accounts?.id) return true
+
+    try {
+      await loadGoogleGisScript()
+    } catch {
+      return false
     }
 
-    // Initialize the GIS library
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: handleGoogleCredentialResponse,
-      auto_select: false,
-      cancel_on_tap_outside: true,
-      itp_support: true,
-    })
+    if (!window.google?.accounts?.id) return false
 
-    initializedRef.current = true
-
-    // Render the official Google button inside our container
-    if (buttonContainerRef.current) {
-      window.google.accounts.id.renderButton(buttonContainerRef.current, {
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-        shape: 'pill',
-        logo_alignment: 'center',
-        width: buttonContainerRef.current.offsetWidth,
+    if (!initializedRef.current) {
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response: { credential?: string }) => {
+          if (response.credential) {
+            handleCredential(response.credential)
+          } else {
+            errorRef.current('Réponse Google invalide')
+            setStatus('idle')
+          }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+        itp_support: true,
       })
+      initializedRef.current = true
     }
 
-    setGoogleReady(true)
-  }, [handleGoogleCredentialResponse])
+    return true
+  }, [handleCredential])
 
-  // Load the GIS script on mount
-  useEffect(() => {
-    let cancelled = false
-
-    loadGoogleGisScript()
-      .then(() => {
-        if (!cancelled) initializeAndRender()
-      })
-      .catch(() => {
-        if (!cancelled) {
-          console.warn('GIS script failed to load, using fallback button')
-          setGisFailed(true)
-        }
-      })
-
-    return () => { cancelled = true }
-  }, [initializeAndRender])
-
-  // ─── OAuth2 Redirect Flow (popup-based fallback when GIS fails) ────
-  const startOAuth2Redirect = useCallback(() => {
+  // OAuth2 popup fallback (when GIS prompt doesn't work)
+  const openOAuth2Popup = useCallback(() => {
     const redirectUri = `${window.location.origin}/api/auth/google/callback`
-    const scope = 'openid email profile'
-    const state = crypto.randomUUID()
-
-    sessionStorage.setItem('google_oauth_state', state)
-
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope,
-      state,
-      access_type: 'offline',
+      scope: 'openid email profile',
       prompt: 'select_account',
     })
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
-
     const width = 500
     const height = 600
     const left = window.screenX + (window.outerWidth - width) / 2
     const top = window.screenY + (window.outerHeight - height) / 2
 
-    popupRef.current = window.open(
-      authUrl,
-      'google-signin',
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
-    )
+    const popup = window.open(authUrl, 'google-signin', `width=${width},height=${height},left=${left},top=${top}`)
 
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.data?.type !== 'google_oauth_callback') return
-
       window.removeEventListener('message', handleMessage)
 
       if (event.data.error) {
         errorRef.current(event.data.error)
-        setSubmitting(false)
+        setStatus('idle')
         return
       }
 
-      try {
-        const res = await fetch('/api/auth/google', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credential: event.data.credential }),
-        })
-        const data = await res.json()
-        if (res.ok) {
-          callbackRef.current()
-        } else {
-          errorRef.current(data.error || 'Erreur de connexion Google')
-        }
-      } catch {
-        errorRef.current('Erreur de connexion au serveur')
-      } finally {
-        setSubmitting(false)
+      if (event.data.credential) {
+        await handleCredential(event.data.credential)
+      } else {
+        errorRef.current('Connexion Google échouée')
+        setStatus('idle')
       }
     }
 
     window.addEventListener('message', handleMessage)
 
     const checkClosed = setInterval(() => {
-      if (popupRef.current?.closed) {
+      if (popup?.closed) {
         clearInterval(checkClosed)
         window.removeEventListener('message', handleMessage)
-        setSubmitting(false)
+        setStatus('idle')
       }
     }, 500)
-  }, [])
+  }, [handleCredential])
 
-  // Fallback button click handler (when GIS failed to load)
-  const handleFallbackClick = useCallback(() => {
-    setSubmitting(true)
-    startOAuth2Redirect()
-  }, [startOAuth2Redirect])
+  // Main click handler
+  const handleClick = useCallback(async () => {
+    setStatus('loading')
+
+    const ready = await ensureInitialized()
+
+    if (!ready) {
+      // GIS completely unavailable → OAuth2 popup
+      openOAuth2Popup()
+      return
+    }
+
+    // Try the One Tap prompt
+    try {
+      const googleId = window.google?.accounts?.id
+      if (!googleId) { openOAuth2Popup(); return }
+
+      googleId.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          // Prompt blocked by browser → open OAuth2 popup instead
+          console.warn('Google prompt skipped:', notification.getNotDisplayedReason?.() || notification.getSkippedReason?.())
+          openOAuth2Popup()
+        }
+        // If prompt is shown, the callback will handle the rest
+        // Only reset status if prompt was skipped AND popup not opened
+        if (!notification.isNotDisplayed() && !notification.isSkippedMoment()) {
+          // Prompt is displayed — user is interacting with Google UI
+          // Status will be updated by the credential callback
+        }
+      })
+    } catch {
+      openOAuth2Popup()
+    }
+  }, [ensureInitialized, openOAuth2Popup])
+
+  const isDisabled = status !== 'idle'
 
   return (
-    <div className="w-full">
-      {/* Official Google rendered button (shown when GIS loads successfully) */}
-      {!gisFailed && (
-        <div
-          ref={buttonContainerRef}
-          className="w-full flex justify-center"
-          style={{ minHeight: googleReady ? 44 : 44 }}
-        >
-          {!googleReady && (
-            <div className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-full bg-white text-gray-400 text-sm">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Chargement Google...
-            </div>
-          )}
-        </div>
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={isDisabled}
+      className="w-full flex items-center justify-center gap-3 py-3.5 px-4 border-2 border-gray-200 rounded-xl bg-white hover:bg-gray-50 hover:border-gray-300 text-gray-700 font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+    >
+      {status === 'submitting' ? (
+        <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
+      ) : status === 'loading' ? (
+        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+      ) : (
+        <GoogleIcon className="w-5 h-5 flex-shrink-0" />
       )}
-
-      {/* Fallback custom button (shown when GIS fails to load) */}
-      {gisFailed && (
-        <button
-          type="button"
-          onClick={handleFallbackClick}
-          disabled={submitting}
-          className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-xl bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {submitting ? (
-            <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
-          ) : (
-            <GoogleIcon className="w-5 h-5 flex-shrink-0" />
-          )}
-          {submitting ? 'Connexion...' : 'Continuer avec Google'}
-        </button>
-      )}
-    </div>
+      {status === 'submitting'
+        ? 'Connexion en cours...'
+        : status === 'loading'
+          ? 'Chargement...'
+          : 'Continuer avec Google'
+      }
+    </button>
   )
 }
 
