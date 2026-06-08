@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate --no-engine && next build",
-    "postinstall": "prisma generate",
+    "build": "rm -rf node_modules/.prisma && rm -rf node_modules/@prisma/client && prisma generate && next build",
+    "postinstall": "rm -rf node_modules/.prisma && prisma generate",
     "start": "next start",
     "lint": "eslint",
     "db:push": "prisma db push",
