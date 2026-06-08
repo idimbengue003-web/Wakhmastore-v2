@@ -68,6 +68,7 @@ export async function POST(request: Request) {
 
     const payment = await db.payment.create({
       data: {
+        id: 'pay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8),
         userId: session.userId,
         type,
         amount,
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       orderReference,
-      paymentId: payment.id,
+      paymentId: payment?.id || orderReference,
       status: 'pending',
       amount,
       label,

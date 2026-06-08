@@ -97,7 +97,7 @@ export async function GET(request: Request) {
         whatsappRevealed: isOwner || hasRevealed,
         status: d.status,
         annonceType: d.annonceType || 'cherche',
-        expiresAt: d.expiresAt?.toISOString() || null,
+        expiresAt: d.expiresAt || null,
         createdAt: d.createdAt,
         userName: d.user.name,
         userSubscriptionTier: d.user.subscriptionTier,
@@ -222,6 +222,7 @@ export async function POST(request: Request) {
 
     const demand = await db.demand.create({
       data: {
+        id: 'demand-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8),
         title: fullTitle,
         description,
         category,

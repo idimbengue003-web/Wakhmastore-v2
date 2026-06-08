@@ -74,8 +74,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const userId = 'user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8)
+
     const user = await db.user.create({
       data: {
+        id: userId,
         name,
         phone: phoneClean,
         password: hashedPassword,
@@ -98,6 +101,13 @@ export async function POST(request: Request) {
           referralCount: { increment: 1 },
         },
       })
+    }
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Erreur lors de la création du compte' },
+        { status: 500 }
+      )
     }
 
     const token = signToken({

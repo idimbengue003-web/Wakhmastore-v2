@@ -26,6 +26,7 @@ export async function POST() {
 
     const admin = await db.user.create({
       data: {
+        id: 'admin-seed-' + Date.now(),
         name: 'Admin Wakhma',
         phone: '770000000',
         password: hashedPassword,
@@ -35,6 +36,10 @@ export async function POST() {
         purchasesCount: 0,
       },
     })
+
+    if (!admin) {
+      return NextResponse.json({ error: 'Erreur lors de la création de l\'admin' }, { status: 500 })
+    }
 
     const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
@@ -75,7 +80,7 @@ export async function POST() {
     ]
 
     for (const data of demoDemands) {
-      await db.demand.create({ data })
+      await db.demand.create({ data: { ...data, id: 'demand-seed-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6) } })
     }
 
     return NextResponse.json({

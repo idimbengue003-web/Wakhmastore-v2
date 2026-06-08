@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { sql } from '@/lib/db'
 
 export async function GET() {
   const diagnostics: Record<string, unknown> = {}
@@ -8,28 +9,20 @@ export async function GET() {
   diagnostics.databaseUrlPrefix = dbUrl ? dbUrl.substring(0, 30) + '...' : 'NOT SET'
   diagnostics.databaseUrlProtocol = dbUrl ? dbUrl.split(':')[0] : 'NONE'
 
-  // Check POSTGRES_URL_NON_POOLING
-  const directUrl = process.env.POSTGRES_URL_NON_POOLING
-  diagnostics.directUrlPrefix = directUrl ? directUrl.substring(0, 30) + '...' : 'NOT SET'
-
   // Check JWT_SECRET
   diagnostics.jwtSecretSet = !!process.env.JWT_SECRET
 
   // Check Node env
   diagnostics.nodeEnv = process.env.NODE_ENV
 
-  // Try to connect to the database
+  // Try to connect to the database using Neon serverless
   try {
-    const { PrismaClient } = await import('@/generated/prisma')
-    const prisma = new PrismaClient()
-    await prisma.$queryRaw`SELECT 1 as test`
-    diagnostics.databaseConnection = 'OK - PostgreSQL connected!'
-    await prisma.$disconnect()
+    const result = await sql`SELECT 1 as test`
+    diagnostics.databaseConnection = result ? 'OK - PostgreSQL connected!' : 'FAILED - no result'
   } catch (error: unknown) {
     const err = error as Error
     diagnostics.databaseConnection = 'FAILED'
     diagnostics.databaseError = err.message
-    diagnostics.databaseErrorStack = err.stack?.substring(0, 500)
   }
 
   return NextResponse.json(diagnostics, { status: 200 })

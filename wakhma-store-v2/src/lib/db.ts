@@ -5,7 +5,33 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 // No schema, no generate, no cache issues on Vercel
 // ═══════════════════════════════════════════════════════════════
 
-export const sql = neon(process.env.DATABASE_URL!)
+let _sql: ReturnType<typeof neon> | null = null
+let _sqlQuery: ((query: string, params?: unknown[]) => Promise<unknown[]>) | null = null
+
+function getSql() {
+  if (!_sql) {
+    _sql = neon(process.env.DATABASE_URL!)
+    _sqlQuery = (_sql as any).query || _sql
+  }
+  return { sql: _sql!, sqlQuery: _sqlQuery! }
+}
+
+export const sql = new Proxy({} as ReturnType<typeof neon>, {
+  apply(_target, _thisArg, args) {
+    return getSql().sql(...args as [TemplateStringsArray, ...unknown[]])
+  },
+  get(_target, prop) {
+    const s = getSql().sql
+    const val = (s as any)[prop]
+    return typeof val === 'function' ? val.bind(s) : val
+  },
+})
+
+export const sqlQuery = new Proxy(((query: string, params?: unknown[]) => Promise.resolve([])) as (query: string, params?: unknown[]) => Promise<unknown[]>, {
+  apply(_target, _thisArg, args) {
+    return getSql().sqlQuery(args[0] as string, args[1] as unknown[])
+  },
+})
 
 // ─── Type definitions ─────────────────────────────────────────
 
@@ -84,8 +110,8 @@ export interface DBPayment {
 
 export const db = {
   // ─── Raw SQL access ───────────────────────────────────────
-  $queryRawUnsafe: async (query: string) => sql(query),
-  $executeRawUnsafe: async (query: string) => { await sql(query) },
+  $queryRawUnsafe: async (query: string) => sqlQuery(query),
+  $executeRawUnsafe: async (query: string) => { await sqlQuery(query) },
   $transaction: async (queries: Promise<unknown>[]) => Promise.all(queries),
 
   // ─── User operations ──────────────────────────────────────
@@ -175,11 +201,46 @@ export const db = {
 
       const whereKey = Object.keys(where)[0]
       const whereVal = Object.values(where)[0]
-      sets.push(`"${whereKey}" = "${whereKey}"`) // keep it
       const query = `UPDATE "User" SET ${sets.join(', ')} WHERE "${whereKey}" = $${idx} RETURNING *`
       values.push(whereVal)
 
       return getOne<DBUser>(query, values)
+    },
+
+    updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+      const sets: string[] = []
+      const values: unknown[] = []
+      let idx = 1
+
+      for (const [key, val] of Object.entries(data)) {
+        sets.push(`"${key}" = $${idx}`)
+        values.push(val)
+        idx++
+      }
+
+      const conditions: string[] = []
+      if (where && Object.keys(where).length > 0) {
+        for (const [key, val] of Object.entries(where)) {
+          if (val && typeof val === 'object' && 'lt' in (val as object)) {
+            conditions.push(`"${key}" < $${idx}`)
+            values.push((val as { lt: unknown }).lt)
+          } else if (val && typeof val === 'object' && 'not' in (val as object)) {
+            conditions.push(`"${key}" IS NOT NULL`)
+            // skip adding value since IS NOT NULL doesn't need a parameter
+          } else if (val && typeof val === 'object' && 'gte' in (val as object)) {
+            conditions.push(`"${key}" >= $${idx}`)
+            values.push((val as { gte: unknown }).gte)
+          } else {
+            conditions.push(`"${key}" = $${idx}`)
+            values.push(val)
+          }
+          idx++
+        }
+      }
+
+      const queryStr = `UPDATE "User" SET ${sets.join(', ')}${conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''}`
+      await sqlQuery(queryStr, values)
+      return { count: 0 } // approximate, updateMany doesn't easily return count with raw SQL
     },
 
     count: async ({ where }: { where?: Record<string, unknown> } = {}) => {
@@ -208,7 +269,7 @@ export const db = {
         values.push(val)
         idx++
       }
-      await sql(`DELETE FROM "User" WHERE ${conditions.join(' AND ')}`, values)
+      await sqlQuery(`DELETE FROM "User" WHERE ${conditions.join(' AND ')}`, values)
     },
   },
 
@@ -357,7 +418,7 @@ export const db = {
       }
 
       const query = `UPDATE "Demand" SET ${sets.join(', ')} WHERE ${conditions.join(' AND ')}`
-      await sql(query, values)
+      await sqlQuery(query, values)
     },
 
     count: async ({ where }: { where?: Record<string, unknown> } = {}) => {
@@ -388,7 +449,7 @@ export const db = {
     },
 
     delete: async ({ where }: { where: { id: string } }) => {
-      await sql('DELETE FROM "Demand" WHERE id = $1', [where.id])
+      await sqlQuery('DELETE FROM "Demand" WHERE id = $1', [where.id])
     },
   },
 
@@ -401,7 +462,22 @@ export const db = {
       )
     },
 
-    findMany: async ({ where }: { where: Record<string, unknown> } = {}) => {
+    findMany: async ({ where }: { where?: Record<string, unknown> } = {}) => {
+      const conditions: string[] = []
+      const values: unknown[] = []
+      let idx = 1
+      if (where) {
+        for (const [key, val] of Object.entries(where)) {
+          conditions.push(`"${key}" = $${idx}`)
+          values.push(val)
+          idx++
+        }
+      }
+      const query = `SELECT * FROM "Reveal"${conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''}`
+      return getAll<DBReveal>(query, values)
+    },
+
+    deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
       const conditions: string[] = []
       const values: unknown[] = []
       let idx = 1
@@ -410,8 +486,7 @@ export const db = {
         values.push(val)
         idx++
       }
-      const query = `SELECT * FROM "Reveal"${conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : ''}`
-      return getAll<DBReveal>(query, values)
+      await sqlQuery(`DELETE FROM "Reveal" WHERE ${conditions.join(' AND ')}`, values)
     },
   },
 
@@ -535,10 +610,10 @@ export const db = {
 // ─── Helper functions ─────────────────────────────────────────
 
 async function getOne<T>(query: string, params: unknown[] = []): Promise<T | null> {
-  const rows = await sql(query, params)
+  const rows = await sqlQuery(query, params)
   return (rows as T[])[0] || null
 }
 
 async function getAll<T>(query: string, params: unknown[] = []): Promise<T[]> {
-  return sql(query, params) as Promise<T[]>
+  return sqlQuery(query, params) as Promise<T[]>
 }

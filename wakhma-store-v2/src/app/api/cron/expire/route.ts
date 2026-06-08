@@ -14,13 +14,13 @@ export async function GET(request: NextRequest) {
     const now = new Date()
 
     // 1. Expire old demands
-    const expiredDemands = await db.demand.updateMany({
+    await db.demand.updateMany({
       where: { status: 'active', expiresAt: { lt: now } },
       data: { status: 'expired' },
     })
 
     // 2. Remove subscription from expired users
-    const expiredSubscriptions = await db.user.updateMany({
+    await db.user.updateMany({
       where: {
         subscriptionTier: { not: null },
         subscriptionEnd: { lt: now.toISOString() },
@@ -32,12 +32,11 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    console.log(`[cron] Expired ${expiredDemands.count} demands, ${expiredSubscriptions.count} subscriptions`)
+    console.log(`[cron] Expired demands and subscriptions processed`)
 
     return NextResponse.json({
       success: true,
-      expiredDemands: expiredDemands.count,
-      expiredSubscriptions: expiredSubscriptions.count,
+      message: 'Expired demands and subscriptions processed',
     })
   } catch (error) {
     console.error('[cron] Error:', error)

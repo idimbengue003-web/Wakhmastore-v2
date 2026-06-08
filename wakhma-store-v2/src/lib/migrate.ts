@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db'
+import { sql, sqlQuery } from '@/lib/db'
 
 let migrated = false
 
@@ -40,7 +40,7 @@ export async function autoMigrate() {
       `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "subscriptionEnd" TEXT`,
     ]
     for (const q of userColumns) {
-      try { await sql(q) } catch { /* column exists */ }
+      try { await sqlQuery(q) } catch { /* column exists */ }
     }
 
     // Create Demand table
@@ -71,7 +71,7 @@ export async function autoMigrate() {
       `ALTER TABLE "Demand" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMP(3)`,
     ]
     for (const q of demandColumns) {
-      try { await sql(q) } catch { /* column exists */ }
+      try { await sqlQuery(q) } catch { /* column exists */ }
     }
 
     // Add foreign key if not exists
@@ -131,7 +131,7 @@ export async function autoMigrate() {
       `ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "adminNote" TEXT`,
     ]
     for (const q of paymentColumns) {
-      try { await sql(q) } catch { /* column exists */ }
+      try { await sqlQuery(q) } catch { /* column exists */ }
     }
 
     try {
@@ -156,7 +156,7 @@ export async function autoMigrate() {
       `CREATE INDEX IF NOT EXISTS "Payment_status_idx" ON "Payment"("status")`,
     ]
     for (const q of indexes) {
-      try { await sql(q) } catch { /* exists */ }
+      try { await sqlQuery(q) } catch { /* exists */ }
     }
 
     // Update expired demands

@@ -100,6 +100,7 @@ export async function POST(request: Request) {
 
       user = await db.user.create({
         data: {
+          id: 'google-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8),
           name: name || 'Utilisateur Google',
           phone: placeholderPhone,
           email: email || null,
@@ -128,6 +129,13 @@ export async function POST(request: Request) {
     }
 
     // Sign our own JWT token
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Erreur lors de la création du compte' },
+        { status: 500 }
+      )
+    }
+
     const token = signToken({
       userId: user.id,
       phone: user.phone,

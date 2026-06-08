@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import type { DBDemand, DBUser, DBReveal } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 import { maskPhonesInText, containsPhoneInText, maskPhone } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
+
+type DemandWithRelations = DBDemand & { user: DBUser; reveals: DBReveal[] }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,7 +15,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const demand = await db.demand.findUnique({
       where: { id },
       include: { user: true, reveals: true },
-    })
+    }) as DemandWithRelations | null
 
     if (!demand) {
       return NextResponse.json({ error: 'Annonce introuvable' }, { status: 404 })
@@ -36,7 +39,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       whatsappRevealed: isOwner || hasRevealed,
       status: demand.status,
       annonceType: demand.annonceType || 'cherche',
-      expiresAt: demand.expiresAt?.toISOString() || null,
+      expiresAt: demand.expiresAt || null,
       createdAt: demand.createdAt,
       userName: demand.user.name,
       userSubscriptionTier: demand.user.subscriptionTier,
