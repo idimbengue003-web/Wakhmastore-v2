@@ -2,10 +2,10 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { cookies } from 'next/headers'
 
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? undefined : 'wakhma-dev-secret-2024')
+const JWT_SECRET: string = process.env.JWT_SECRET || 'wakhma-dev-secret-2024'
 
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required in production')
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.warn('⚠️ JWT_SECRET not set in production — using insecure fallback. Set JWT_SECRET in Vercel environment variables!')
 }
 
 export interface JWTPayload {

@@ -28,14 +28,12 @@ function loadGoogleGisScript(): Promise<void> {
     // Check if script tag already exists
     const existing = document.querySelector('script[src*="accounts.google.com/gsi/client"]')
     if (existing) {
-      // Script tag exists but library not ready yet — wait for it
       const checkReady = setInterval(() => {
         if (window.google?.accounts?.id) {
           clearInterval(checkReady)
           resolve()
         }
       }, 100)
-      // Timeout after 15s
       setTimeout(() => {
         clearInterval(checkReady)
         if (window.google?.accounts?.id) {
@@ -54,7 +52,6 @@ function loadGoogleGisScript(): Promise<void> {
     script.defer = true
 
     script.onload = () => {
-      // Small delay to ensure the library is fully initialised
       const checkReady = setInterval(() => {
         if (window.google?.accounts?.id) {
           clearInterval(checkReady)
@@ -96,6 +93,8 @@ function GoogleIcon({ className }: { className?: string }) {
 }
 
 // ─── Google Sign-In Button (shared between Login & Register) ────────────
+// Uses google.accounts.id.renderButton() for the official Google button
+// with a custom fallback button if GIS fails to load.
 
 interface GoogleSignInButtonProps {
   onSuccess: () => void
@@ -103,12 +102,13 @@ interface GoogleSignInButtonProps {
 }
 
 function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
-  const [googleLoaded, setGoogleLoaded] = useState(false)
-  const [googleLoading, setGoogleLoading] = useState(false)
+  const [googleReady, setGoogleReady] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [gisFailed, setGisFailed] = useState(false)
   const callbackRef = useRef(onSuccess)
   const errorRef = useRef(onError)
   const initializedRef = useRef(false)
+  const buttonContainerRef = useRef<HTMLDivElement>(null)
   const popupRef = useRef<Window | null>(null)
 
   // Keep refs in sync without re-initializing Google
@@ -145,14 +145,15 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
     }
   }, [])
 
-  const initializeGoogle = useCallback(() => {
+  // Initialize Google GIS and render the official button
+  const initializeAndRender = useCallback(() => {
     if (!window.google?.accounts?.id) return
     if (initializedRef.current) {
-      // Already initialized, just mark as loaded
-      setGoogleLoaded(true)
+      setGoogleReady(true)
       return
     }
 
+    // Initialize the GIS library
     window.google.accounts.id.initialize({
       client_id: GOOGLE_CLIENT_ID,
       callback: handleGoogleCredentialResponse,
@@ -162,44 +163,46 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
     })
 
     initializedRef.current = true
-    setGoogleLoaded(true)
+
+    // Render the official Google button inside our container
+    if (buttonContainerRef.current) {
+      window.google.accounts.id.renderButton(buttonContainerRef.current, {
+        theme: 'outline',
+        size: 'large',
+        text: 'signin_with',
+        shape: 'pill',
+        logo_alignment: 'center',
+        width: buttonContainerRef.current.offsetWidth,
+      })
+    }
+
+    setGoogleReady(true)
   }, [handleGoogleCredentialResponse])
 
+  // Load the GIS script on mount
   useEffect(() => {
     let cancelled = false
 
-    async function load() {
-      setGoogleLoading(true)
-      try {
-        await loadGoogleGisScript()
+    loadGoogleGisScript()
+      .then(() => {
+        if (!cancelled) initializeAndRender()
+      })
+      .catch(() => {
         if (!cancelled) {
-          initializeGoogle()
+          console.warn('GIS script failed to load, using fallback button')
+          setGisFailed(true)
         }
-      } catch {
-        if (!cancelled) {
-          errorRef.current('Impossible de charger Google Sign-In. Réessayez.')
-        }
-      } finally {
-        if (!cancelled) {
-          setGoogleLoading(false)
-        }
-      }
-    }
+      })
 
-    load()
+    return () => { cancelled = true }
+  }, [initializeAndRender])
 
-    return () => {
-      cancelled = true
-    }
-  }, [initializeGoogle])
-
-  // ─── OAuth2 Redirect Flow (popup-based fallback) ─────────────────
+  // ─── OAuth2 Redirect Flow (popup-based fallback when GIS fails) ────
   const startOAuth2Redirect = useCallback(() => {
     const redirectUri = `${window.location.origin}/api/auth/google/callback`
     const scope = 'openid email profile'
     const state = crypto.randomUUID()
 
-    // Store state for verification
     sessionStorage.setItem('google_oauth_state', state)
 
     const params = new URLSearchParams({
@@ -214,7 +217,6 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
 
-    // Open popup
     const width = 500
     const height = 600
     const left = window.screenX + (window.outerWidth - width) / 2
@@ -226,7 +228,6 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
       `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
     )
 
-    // Listen for message from callback
     const handleMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return
       if (event.data?.type !== 'google_oauth_callback') return
@@ -239,7 +240,6 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
         return
       }
 
-      // Exchange code via our API
       try {
         const res = await fetch('/api/auth/google', {
           method: 'POST',
@@ -261,7 +261,6 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
 
     window.addEventListener('message', handleMessage)
 
-    // Fallback: if popup closes without sending message
     const checkClosed = setInterval(() => {
       if (popupRef.current?.closed) {
         clearInterval(checkClosed)
@@ -271,60 +270,47 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
     }, 500)
   }, [])
 
-  const handleGoogleClick = useCallback(() => {
-    if (!googleLoaded || !window.google?.accounts?.id) {
-      // GIS not ready — try loading again, then fallback to OAuth2 redirect
-      if (!googleLoading) {
-        setGoogleLoading(true)
-        loadGoogleGisScript()
-          .then(() => initializeGoogle())
-          .catch(() => {
-            // GIS failed, use OAuth2 redirect as fallback
-            setSubmitting(true)
-            startOAuth2Redirect()
-          })
-          .finally(() => setGoogleLoading(false))
-      }
-      return
-    }
-
+  // Fallback button click handler (when GIS failed to load)
+  const handleFallbackClick = useCallback(() => {
     setSubmitting(true)
-
-    // Try One Tap prompt first
-    window.google.accounts.id.prompt((notification) => {
-      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || 'unknown'
-        console.warn('Google prompt not shown:', reason)
-
-        // Fallback to OAuth2 redirect flow
-        startOAuth2Redirect()
-      }
-    })
-  }, [googleLoaded, googleLoading, initializeGoogle, startOAuth2Redirect])
-
-  const isDisabled = submitting || googleLoading
+    startOAuth2Redirect()
+  }, [startOAuth2Redirect])
 
   return (
-    <button
-      type="button"
-      onClick={handleGoogleClick}
-      disabled={isDisabled}
-      className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-xl bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-    >
-      {submitting ? (
-        <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
-      ) : googleLoading ? (
-        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-      ) : (
-        <GoogleIcon className="w-5 h-5 flex-shrink-0" />
+    <div className="w-full">
+      {/* Official Google rendered button (shown when GIS loads successfully) */}
+      {!gisFailed && (
+        <div
+          ref={buttonContainerRef}
+          className="w-full flex justify-center"
+          style={{ minHeight: googleReady ? 44 : 44 }}
+        >
+          {!googleReady && (
+            <div className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-full bg-white text-gray-400 text-sm">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Chargement Google...
+            </div>
+          )}
+        </div>
       )}
-      {submitting
-        ? 'Connexion...'
-        : googleLoading
-          ? 'Chargement...'
-          : 'Continuer avec Google'
-      }
-    </button>
+
+      {/* Fallback custom button (shown when GIS fails to load) */}
+      {gisFailed && (
+        <button
+          type="button"
+          onClick={handleFallbackClick}
+          disabled={submitting}
+          className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-xl bg-white hover:bg-gray-50 text-gray-700 font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? (
+            <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
+          ) : (
+            <GoogleIcon className="w-5 h-5 flex-shrink-0" />
+          )}
+          {submitting ? 'Connexion...' : 'Continuer avec Google'}
+        </button>
+      )}
+    </div>
   )
 }
 
