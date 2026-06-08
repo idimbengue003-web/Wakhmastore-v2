@@ -8,7 +8,7 @@ import {
   User, Zap, Package, ShoppingCart, TrendingUp, RefreshCw,
   Trash2, CheckCircle, AlertTriangle, ArrowLeft, Store, Search,
   Clock, Eye, MapPin, Star, Crown, LogOut, ChevronRight,
-  CreditCard, MessageCircle
+  CreditCard, MessageCircle, Copy, Users
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -322,6 +322,40 @@ export default function ProfilPage() {
               <Package className="w-3.5 h-3.5" /> Déposer une annonce
             </Link>
           </div>
+
+          {/* Referral Section */}
+          {user.referralCode && (
+            <div className="mt-4 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Users className="w-4 h-4 text-blue-800" />
+                <span className="text-xs font-bold text-blue-900">Parrainage</span>
+                {user.referralCount !== undefined && user.referralCount > 0 && (
+                  <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-bold">
+                    {user.referralCount}/40 filleuls
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-blue-700 mb-2">
+                Partage ton code et gagne 2 000 pts pour chaque filleul ! Max 40 filleuls.
+              </p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 px-3 py-2 bg-white rounded-lg border border-blue-200 font-mono text-sm font-bold text-blue-900 tracking-wider">
+                  {user.referralCode}
+                </div>
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/register?ref=${user.referralCode}`
+                    navigator.clipboard.writeText(url)
+                    setSuccessMsg('Lien de parrainage copié !')
+                    setTimeout(() => setSuccessMsg(''), 3000)
+                  }}
+                  className="px-3 py-2 bg-blue-800 hover:bg-blue-900 text-white rounded-lg text-xs font-bold flex items-center gap-1"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copier le lien
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

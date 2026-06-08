@@ -6,7 +6,7 @@ import { useAuthStore } from '@/lib/store'
 import { CATEGORY_EMOJIS, formatFCFA, getRevealPrice, timeAgo, maskPhone } from '@/lib/constants'
 import {
   ArrowLeft, MapPin, Clock, MessageCircle, CheckCircle, Eye,
-  AlertTriangle, Shield, Zap, Share2, Flag, Star, Crown
+  AlertTriangle, Shield, Zap, Share2, Flag, Star, Crown, Copy
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -46,6 +46,8 @@ export default function AnnonceDetailPage() {
   const [revealing, setRevealing] = useState(false)
   const [revealedWhatsapp, setRevealedWhatsapp] = useState('')
   const [revealPrice, setRevealPrice] = useState(1000)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [shareMsg, setShareMsg] = useState('')
 
   useEffect(() => {
     async function loadDemand() {
@@ -91,11 +93,11 @@ export default function AnnonceDetailPage() {
         setRevealStep('revealed')
         await fetchUser()
       } else {
-        alert(data.error || 'Erreur lors de la révélation')
+        setErrorMsg(data.error || 'Erreur lors de la révélation')
         setRevealStep('info')
       }
     } catch {
-      alert('Erreur de connexion')
+      setErrorMsg('Erreur de connexion')
       setRevealStep('info')
     } finally {
       setRevealing(false)
@@ -106,6 +108,20 @@ export default function AnnonceDetailPage() {
     if (revealedWhatsapp) {
       const cleaned = revealedWhatsapp.replace(/\s/g, '')
       window.open(`https://wa.me/221${cleaned}`, '_blank')
+    }
+  }
+
+  const handleShare = async () => {
+    const url = window.location.href
+    const text = demand ? `${demand.title} - Wakhma Store` : 'Wakhma Store'
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: text, url })
+      } catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard.writeText(url)
+      setShareMsg('Lien copié !')
+      setTimeout(() => setShareMsg(''), 2000)
     }
   }
 
@@ -164,10 +180,30 @@ export default function AnnonceDetailPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-      {/* Back */}
-      <Link href="/annonces" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-orange mb-4">
-        <ArrowLeft className="w-4 h-4" /> Retour aux annonces
-      </Link>
+      {/* Back + Share */}
+      <div className="flex items-center justify-between mb-4">
+        <Link href="/annonces" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-orange">
+          <ArrowLeft className="w-4 h-4" /> Retour aux annonces
+        </Link>
+        <div className="flex items-center gap-2">
+          {shareMsg && (
+            <span className="text-xs text-green-600 font-medium">{shareMsg}</span>
+          )}
+          <button
+            onClick={handleShare}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-orange hover:bg-orange-bg rounded-lg transition-colors"
+          >
+            <Share2 className="w-4 h-4" /> Partager
+          </button>
+        </div>
+      </div>
+
+      {/* Error message */}
+      {errorMsg && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> {errorMsg}
+        </div>
+      )}
 
       {/* Main Card */}
       <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">

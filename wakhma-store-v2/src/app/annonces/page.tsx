@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { DemandCard } from '@/components/DemandCard'
-import { CATEGORIES, CATEGORY_EMOJIS } from '@/lib/constants'
-import { Search, SlidersHorizontal, X, Loader2, CheckCircle } from 'lucide-react'
+import { CATEGORIES, CATEGORY_EMOJIS, QUARTIERS } from '@/lib/constants'
+import { Search, SlidersHorizontal, X, Loader2, CheckCircle, ArrowUpDown } from 'lucide-react'
 
 interface Demand {
   id: string
@@ -30,6 +30,8 @@ interface Demand {
   hasPhoneInText: boolean
 }
 
+type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'urgent'
+
 function AnnoncesContent() {
   const searchParams = useSearchParams()
   const [demands, setDemands] = useState<Demand[]>([])
@@ -38,7 +40,11 @@ function AnnoncesContent() {
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [category, setCategory] = useState(searchParams.get('category') || 'Toutes')
+  const [quartier, setQuartier] = useState('Tous')
+  const [annonceType, setAnnonceType] = useState<string>('tous')
+  const [sort, setSort] = useState<SortOption>('recent')
   const [showFilters, setShowFilters] = useState(false)
 
   const fetchDemands = useCallback(async (cursor?: string) => {
@@ -53,6 +59,8 @@ function AnnoncesContent() {
       const params = new URLSearchParams()
       if (category && category !== 'Toutes') params.set('category', category)
       if (search) params.set('search', search)
+      if (quartier && quartier !== 'Tous') params.set('quartier', quartier)
+      if (annonceType && annonceType !== 'tous') params.set('annonceType', annonceType)
       if (cursor) params.set('cursor', cursor)
 
       const res = await fetch(`/api/demands?${params.toString()}`)
@@ -72,7 +80,7 @@ function AnnoncesContent() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [category, search])
+  }, [category, search, quartier, annonceType])
 
   useEffect(() => {
     let cancelled = false
@@ -82,6 +90,8 @@ function AnnoncesContent() {
         const params = new URLSearchParams()
         if (category && category !== 'Toutes') params.set('category', category)
         if (search) params.set('search', search)
+        if (quartier && quartier !== 'Tous') params.set('quartier', quartier)
+        if (annonceType && annonceType !== 'tous') params.set('annonceType', annonceType)
 
         const res = await fetch(`/api/demands?${params.toString()}`)
         if (cancelled) return
@@ -99,10 +109,11 @@ function AnnoncesContent() {
     }
     load()
     return () => { cancelled = true }
-  }, [category, search])
+  }, [category, search, quartier, annonceType])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
+    setSearch(searchInput)
   }
 
   const handleLoadMore = () => {
@@ -110,6 +121,33 @@ function AnnoncesContent() {
       fetchDemands(nextCursor)
     }
   }
+
+  const clearFilters = () => {
+    setCategory('Toutes')
+    setQuartier('Tous')
+    setAnnonceType('tous')
+    setSort('recent')
+    setSearch('')
+    setSearchInput('')
+  }
+
+  const hasActiveFilters = category !== 'Toutes' || quartier !== 'Tous' || annonceType !== 'tous' || search !== ''
+
+  // Client-side sort
+  const sortedDemands = [...demands].sort((a, b) => {
+    switch (sort) {
+      case 'price_asc':
+        return (a.price || a.budget || 0) - (b.price || b.budget || 0)
+      case 'price_desc':
+        return (b.price || b.budget || 0) - (a.price || a.budget || 0)
+      case 'urgent':
+        const urgencyOrder: Record<string, number> = { urgent: 0, '2jours': 1, '1semaine': 2, flexible: 3 }
+        return (urgencyOrder[a.urgency] ?? 3) - (urgencyOrder[b.urgency] ?? 3)
+      case 'recent':
+      default:
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    }
+  })
 
   const hasMore = nextCursor !== null
 
@@ -124,23 +162,41 @@ function AnnoncesContent() {
         </p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-2 mb-6">
+      {/* Search Bar */}
+      <form onSubmit={handleSearch} className="flex gap-2 mb-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Rechercher une annonce..."
             className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange focus:border-orange outline-none transition-all text-sm"
           />
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => { setSearchInput(''); setSearch('') }}
+              className="absolute right-3 top-1/2 -translate-y-1/2"
+            >
+              <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+            </button>
+          )}
         </div>
         <button
           type="button"
           onClick={() => setShowFilters(!showFilters)}
-          className="px-4 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors lg:hidden"
+          className={`px-4 py-3 border rounded-xl transition-colors flex items-center gap-1.5 ${
+            showFilters || hasActiveFilters
+              ? 'border-orange bg-orange-bg text-orange'
+              : 'border-gray-300 hover:bg-gray-50 text-gray-600'
+          }`}
         >
-          <SlidersHorizontal className="w-5 h-5 text-gray-600" />
+          <SlidersHorizontal className="w-4 h-4" />
+          <span className="hidden sm:inline text-sm font-medium">Filtres</span>
+          {hasActiveFilters && (
+            <span className="w-2 h-2 bg-orange rounded-full" />
+          )}
         </button>
         <button
           type="submit"
@@ -150,43 +206,144 @@ function AnnoncesContent() {
         </button>
       </form>
 
-      <div className={`mb-6 ${showFilters ? 'block' : 'hidden lg:block'}`}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">Filtrer par catégorie</h3>
-          {category !== 'Toutes' && (
-            <button
-              onClick={() => setCategory('Toutes')}
-              className="text-xs text-orange hover:text-orange-dark flex items-center gap-1"
-            >
-              <X className="w-3 h-3" />
-              Effacer le filtre
-            </button>
+      {/* Filters Panel */}
+      <div className={`mb-6 ${showFilters ? 'block' : 'hidden'}`}>
+        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+          {/* Category Filter */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-gray-700">Catégorie</h3>
+              {category !== 'Toutes' && (
+                <button onClick={() => setCategory('Toutes')} className="text-xs text-orange hover:text-orange-dark">Effacer</button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto custom-scrollbar">
+              <button
+                onClick={() => setCategory('Toutes')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  category === 'Toutes'
+                    ? 'bg-orange text-white shadow-sm'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                Toutes
+              </button>
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    category === cat
+                      ? 'bg-orange text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {CATEGORY_EMOJIS[cat] || '📦'} {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Type + Quartier + Sort Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Annonce Type */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Type d&apos;annonce</h3>
+              <div className="flex gap-2">
+                {[
+                  { value: 'tous', label: 'Tous' },
+                  { value: 'cherche', label: '🔍 Je cherche' },
+                  { value: 'vends', label: '🛒 Je vends' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setAnnonceType(opt.value)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      annonceType === opt.value
+                        ? 'bg-orange text-white shadow-sm'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Quartier */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Quartier</h3>
+              <select
+                value={quartier}
+                onChange={(e) => setQuartier(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-orange focus:border-orange outline-none"
+              >
+                <option value="Tous">Tous les quartiers</option>
+                {QUARTIERS.map((q) => (
+                  <option key={q} value={q}>{q}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Sort */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Trier par</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSort('recent')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
+                    sort === 'recent'
+                      ? 'bg-orange text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <ArrowUpDown className="w-3 h-3" /> Récents
+                </button>
+                <button
+                  onClick={() => setSort('price_asc')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    sort === 'price_asc'
+                      ? 'bg-orange text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Prix ↑
+                </button>
+                <button
+                  onClick={() => setSort('price_desc')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    sort === 'price_desc'
+                      ? 'bg-orange text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Prix ↓
+                </button>
+                <button
+                  onClick={() => setSort('urgent')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    sort === 'urgent'
+                      ? 'bg-orange text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  🔥 Urgent
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Clear all */}
+          {hasActiveFilters && (
+            <div className="pt-2 border-t border-gray-100">
+              <button
+                onClick={clearFilters}
+                className="text-xs text-orange hover:text-orange-dark font-medium flex items-center gap-1"
+              >
+                <X className="w-3 h-3" /> Effacer tous les filtres
+              </button>
+            </div>
           )}
-        </div>
-        <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-          <button
-            onClick={() => setCategory('Toutes')}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              category === 'Toutes'
-                ? 'bg-orange text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Toutes
-          </button>
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                category === cat
-                  ? 'bg-orange text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {CATEGORY_EMOJIS[cat] || '📦'} {cat}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -204,25 +361,35 @@ function AnnoncesContent() {
             </div>
           ))}
         </div>
-      ) : demands.length === 0 ? (
+      ) : sortedDemands.length === 0 ? (
         <div className="text-center py-16">
           <div className="text-5xl mb-4">🔍</div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">
             Aucune annonce trouvée
           </h3>
           <p className="text-gray-500 mb-6">
-            Essayez de modifier vos critères de recherche
+            {hasActiveFilters
+              ? 'Essayez de modifier vos critères de recherche'
+              : 'Soyez le premier à poster une annonce !'}
           </p>
+          {hasActiveFilters ? (
+            <button
+              onClick={clearFilters}
+              className="text-orange font-semibold text-sm hover:underline"
+            >
+              Effacer les filtres
+            </button>
+          ) : null}
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-gray-500">
-              {demands.length} annonce{demands.length > 1 ? 's' : ''} chargée{demands.length > 1 ? 's' : ''} sur {total}
+              {sortedDemands.length} annonce{sortedDemands.length > 1 ? 's' : ''} chargée{sortedDemands.length > 1 ? 's' : ''} sur {total}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {demands.map((demand) => (
+            {sortedDemands.map((demand) => (
               <DemandCard
                 key={demand.id}
                 demand={demand}

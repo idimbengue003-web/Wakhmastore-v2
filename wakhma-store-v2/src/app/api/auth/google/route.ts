@@ -8,6 +8,16 @@ const GOOGLE_CLIENT_ID = '645891430275-48re5e0v1nagsnei4al8pel4ff9dknq1.apps.goo
 
 const client = new OAuth2Client(GOOGLE_CLIENT_ID)
 
+// Generate a unique referral code: WK + 6 random chars
+function generateReferralCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = 'WK'
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return code
+}
+
 interface GoogleTokenPayload {
   sub: string
   email: string
@@ -80,6 +90,14 @@ export async function POST(request: Request) {
       // Format: goog_{googleId} — guaranteed unique since googleId is unique
       const placeholderPhone = `goog_${googleId}`
 
+      // Generate a unique referral code
+      let referralCode = generateReferralCode()
+      let codeExists = await db.user.findUnique({ where: { referralCode } })
+      while (codeExists) {
+        referralCode = generateReferralCode()
+        codeExists = await db.user.findUnique({ where: { referralCode } })
+      }
+
       user = await db.user.create({
         data: {
           name: name || 'Utilisateur Google',
@@ -92,6 +110,7 @@ export async function POST(request: Request) {
           points: 0,
           salesCount: 0,
           purchasesCount: 0,
+          referralCode,
         },
       })
     } else {

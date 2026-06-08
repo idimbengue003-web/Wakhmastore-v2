@@ -5,6 +5,20 @@ import { autoMigrate } from '@/lib/migrate'
 import { rateLimiters } from '@/lib/rate-limit'
 import { validateApi, registerSchema } from '@/lib/validations'
 
+// Generate a unique referral code: WK + 6 random chars
+function generateReferralCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = 'WK'
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return code
+}
+
+// Referral bonus points
+const REFERRAL_BONUS_POINTS = 2000
+const MAX_REFERRALS = 40
+
 export async function POST(request: Request) {
   try {
     // Rate limiting - 3 registrations per hour per IP
@@ -30,7 +44,7 @@ export async function POST(request: Request) {
     if (!validation.success) {
       return NextResponse.json({ error: validation.error }, { status: 400 })
     }
-    const { name, phone, password, userType } = validation.data
+    const { name, phone, password, userType, referralCode } = validation.data
     const phoneClean = phone
 
     const existing = await db.user.findUnique({ where: { phone: phoneClean } })
@@ -43,6 +57,23 @@ export async function POST(request: Request) {
 
     const hashedPassword = hashPassword(password)
 
+    // Generate a unique referral code for this user
+    let userReferralCode = generateReferralCode()
+    let codeExists = await db.user.findUnique({ where: { referralCode: userReferralCode } })
+    while (codeExists) {
+      userReferralCode = generateReferralCode()
+      codeExists = await db.user.findUnique({ where: { referralCode: userReferralCode } })
+    }
+
+    // Check referral code from another user
+    let referrerId: string | null = null
+    if (referralCode) {
+      const referrer = await db.user.findUnique({ where: { referralCode } })
+      if (referrer && referrer.referralCount < MAX_REFERRALS) {
+        referrerId = referrer.id
+      }
+    }
+
     const user = await db.user.create({
       data: {
         name,
@@ -50,11 +81,24 @@ export async function POST(request: Request) {
         password: hashedPassword,
         role: 'user',
         userType,
-        points: 0,
+        points: referrerId ? REFERRAL_BONUS_POINTS : 0, // Bonus if referred
         salesCount: 0,
         purchasesCount: 0,
+        referralCode: userReferralCode,
+        referredBy: referrerId,
       },
     })
+
+    // Credit the referrer with bonus points
+    if (referrerId) {
+      await db.user.update({
+        where: { id: referrerId },
+        data: {
+          points: { increment: REFERRAL_BONUS_POINTS },
+          referralCount: { increment: 1 },
+        },
+      })
+    }
 
     const token = signToken({
       userId: user.id,
@@ -75,6 +119,7 @@ export async function POST(request: Request) {
         userType: user.userType,
         salesCount: user.salesCount,
         purchasesCount: user.purchasesCount,
+        referralCode: user.referralCode,
       },
     })
 

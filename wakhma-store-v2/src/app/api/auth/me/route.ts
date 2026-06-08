@@ -25,6 +25,8 @@ export async function GET() {
         userType: true,
         salesCount: true,
         purchasesCount: true,
+        referralCode: true,
+        referralCount: true,
       },
     })
 
@@ -61,6 +63,8 @@ export async function GET() {
         userType: user.userType,
         salesCount: user.salesCount,
         purchasesCount: user.purchasesCount,
+        referralCode: user.referralCode,
+        referralCount: user.referralCount,
       },
     })
   } catch (error) {

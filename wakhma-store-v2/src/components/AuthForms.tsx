@@ -109,6 +109,7 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
   const callbackRef = useRef(onSuccess)
   const errorRef = useRef(onError)
   const initializedRef = useRef(false)
+  const popupRef = useRef<Window | null>(null)
 
   // Keep refs in sync without re-initializing Google
   useEffect(() => {
@@ -192,14 +193,96 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
     }
   }, [initializeGoogle])
 
+  // ─── OAuth2 Redirect Flow (popup-based fallback) ─────────────────
+  const startOAuth2Redirect = useCallback(() => {
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`
+    const scope = 'openid email profile'
+    const state = crypto.randomUUID()
+
+    // Store state for verification
+    sessionStorage.setItem('google_oauth_state', state)
+
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope,
+      state,
+      access_type: 'offline',
+      prompt: 'select_account',
+    })
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`
+
+    // Open popup
+    const width = 500
+    const height = 600
+    const left = window.screenX + (window.outerWidth - width) / 2
+    const top = window.screenY + (window.outerHeight - height) / 2
+
+    popupRef.current = window.open(
+      authUrl,
+      'google-signin',
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
+    )
+
+    // Listen for message from callback
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type !== 'google_oauth_callback') return
+
+      window.removeEventListener('message', handleMessage)
+
+      if (event.data.error) {
+        errorRef.current(event.data.error)
+        setSubmitting(false)
+        return
+      }
+
+      // Exchange code via our API
+      try {
+        const res = await fetch('/api/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: event.data.credential }),
+        })
+        const data = await res.json()
+        if (res.ok) {
+          callbackRef.current()
+        } else {
+          errorRef.current(data.error || 'Erreur de connexion Google')
+        }
+      } catch {
+        errorRef.current('Erreur de connexion au serveur')
+      } finally {
+        setSubmitting(false)
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+
+    // Fallback: if popup closes without sending message
+    const checkClosed = setInterval(() => {
+      if (popupRef.current?.closed) {
+        clearInterval(checkClosed)
+        window.removeEventListener('message', handleMessage)
+        setSubmitting(false)
+      }
+    }, 500)
+  }, [])
+
   const handleGoogleClick = useCallback(() => {
     if (!googleLoaded || !window.google?.accounts?.id) {
-      // GIS not ready — try loading again
+      // GIS not ready — try loading again, then fallback to OAuth2 redirect
       if (!googleLoading) {
         setGoogleLoading(true)
         loadGoogleGisScript()
           .then(() => initializeGoogle())
-          .catch(() => errorRef.current('Impossible de charger Google Sign-In'))
+          .catch(() => {
+            // GIS failed, use OAuth2 redirect as fallback
+            setSubmitting(true)
+            startOAuth2Redirect()
+          })
           .finally(() => setGoogleLoading(false))
       }
       return
@@ -207,28 +290,19 @@ function GoogleSignInButton({ onSuccess, onError }: GoogleSignInButtonProps) {
 
     setSubmitting(true)
 
-    // Use prompt() for the One Tap flow — this is more reliable than renderButton
+    // Try One Tap prompt first
     window.google.accounts.id.prompt((notification) => {
       if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
         const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || 'unknown'
         console.warn('Google prompt not shown:', reason)
 
-        // If prompt is suppressed or skipped, try the OAuth2 token client fallback
-        // For now, inform the user
-        setSubmitting(false)
-
-        if (reason === 'suppressed_by_user' || reason === 'tap_outside') {
-          errorRef.current('Connexion Google annulée')
-        } else if (reason === 'browser_not_supported') {
-          errorRef.current('Votre navigateur ne supporte pas Google Sign-In')
-        } else {
-          errorRef.current('Connexion Google indisponible. Utilisez le formulaire ci-dessous.')
-        }
+        // Fallback to OAuth2 redirect flow
+        startOAuth2Redirect()
       }
     })
-  }, [googleLoaded, googleLoading, initializeGoogle])
+  }, [googleLoaded, googleLoading, initializeGoogle, startOAuth2Redirect])
 
-  const isDisabled = !googleLoaded || submitting || googleLoading
+  const isDisabled = submitting || googleLoading
 
   return (
     <button
@@ -358,7 +432,11 @@ export function LoginForm() {
 
 // ─── Register Form ──────────────────────────────────────────────────────
 
-export function RegisterForm() {
+interface RegisterFormProps {
+  referralCode?: string
+}
+
+export function RegisterForm({ referralCode: initialReferralCode }: RegisterFormProps) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -386,7 +464,7 @@ export function RegisterForm() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, password, userType }),
+        body: JSON.stringify({ name, phone, password, userType, referralCode: initialReferralCode }),
       })
 
       const data = await res.json()
@@ -464,7 +542,7 @@ export function RegisterForm() {
           </div>
           {userType === 'vendeur' && (
             <p className="text-[11px] text-amber-600 mt-2 bg-amber-50 p-2 rounded-lg">
-              💡 Vendeur simple : tu peux répondre aux demandes. Pour poster des annonces &quot;Je vends&quot;, prends un abonnement Diambar ou VIP KING.
+              Vendeur simple : tu peux répondre aux demandes. Pour poster des annonces &quot;Je vends&quot;, prends un abonnement Diambar ou VIP KING.
             </p>
           )}
         </div>

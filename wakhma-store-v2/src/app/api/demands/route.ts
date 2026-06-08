@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const category = searchParams.get('category')
     const search = searchParams.get('search')
     const annonceType = searchParams.get('annonceType')
+    const quartierFilter = searchParams.get('quartier')
     const userId = searchParams.get('userId')
     const includeExpired = searchParams.get('includeExpired') === 'true'
     const cursor = searchParams.get('cursor') || undefined
@@ -47,6 +48,10 @@ export async function GET(request: Request) {
 
     if (annonceType) {
       where.annonceType = annonceType
+    }
+
+    if (quartierFilter && quartierFilter !== 'Tous') {
+      where.quartier = quartierFilter
     }
 
     if (search) {

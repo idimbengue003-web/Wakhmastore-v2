@@ -12,6 +12,8 @@ interface User {
   userType?: string
   salesCount?: number
   purchasesCount?: number
+  referralCode?: string | null
+  referralCount?: number
 }
 
 interface AuthState {

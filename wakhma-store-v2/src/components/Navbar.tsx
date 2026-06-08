@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useAuthStore } from '@/lib/store'
-import { Menu, X, Store, LogOut, User, Zap } from 'lucide-react'
+import { Menu, X, Store, LogOut, User, Zap, Shield } from 'lucide-react'
 import { useState, useCallback } from 'react'
 
 export function Navbar() {
   const { user } = useAuthStore()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isAdmin = user?.role === 'admin'
 
   const handleLogout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -32,6 +33,11 @@ export function Navbar() {
             <Link href="/abonnements" className="text-sm font-medium text-gray-700 hover:text-orange">
               Abonnements
             </Link>
+            {isAdmin && (
+              <Link href="/admin" className="text-sm font-medium text-blue-800 hover:text-blue-900 flex items-center gap-1">
+                <Shield className="w-3.5 h-3.5" /> Admin
+              </Link>
+            )}
           </div>
 
           <div className="hidden md:flex items-center gap-2">
@@ -44,8 +50,16 @@ export function Navbar() {
             {user ? (
               <div className="relative group">
                 <button className="flex items-center gap-1.5 px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg">
-                  <div className="w-7 h-7 bg-orange-bg rounded-full flex items-center justify-center">
-                    <User className="w-3.5 h-3.5 text-orange" />
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                    user.subscriptionTier === 'king' ? 'bg-yellow-100' :
+                    user.subscriptionTier === 'diambar' ? 'bg-indigo-100' :
+                    'bg-orange-bg'
+                  }`}>
+                    <User className={`w-3.5 h-3.5 ${
+                      user.subscriptionTier === 'king' ? 'text-yellow-600' :
+                      user.subscriptionTier === 'diambar' ? 'text-indigo-600' :
+                      'text-orange'
+                    }`} />
                   </div>
                   <span className="hidden lg:inline max-w-[80px] truncate text-xs">{user.name}</span>
                   {user.subscriptionTier === 'king' && <span className="text-xs">⭐</span>}
@@ -72,6 +86,15 @@ export function Navbar() {
                   <Link href="/abonnements" className="block px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
                     Abonnements
                   </Link>
+                  {isAdmin && (
+                    <>
+                      <div className="border-t border-gray-100 my-1" />
+                      <Link href="/admin" className="block px-3 py-1.5 text-xs text-blue-800 hover:bg-blue-50 flex items-center gap-1.5">
+                        <Shield className="w-3 h-3" /> Tableau de bord Admin
+                      </Link>
+                    </>
+                  )}
+                  <div className="border-t border-gray-100 my-1" />
                   <button
                     onClick={handleLogout}
                     className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-1.5"
@@ -119,6 +142,11 @@ export function Navbar() {
                 <Link href="/recharge" onClick={() => setMobileOpen(false)} className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                   Recharger des points
                 </Link>
+                {isAdmin && (
+                  <Link href="/admin" onClick={() => setMobileOpen(false)} className="block px-3 py-2 text-sm text-blue-800 hover:bg-blue-50 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5" /> Admin
+                  </Link>
+                )}
                 <button onClick={() => { handleLogout(); setMobileOpen(false) }} className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50">
                   Déconnexion
                 </button>
