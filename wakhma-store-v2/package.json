@@ -1,10 +1,10 @@
 {
   "name": "wakhma-store-v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "rm -rf node_modules/.prisma && rm -rf node_modules/@prisma/client && prisma generate && next build",
+    "build": "bash build.sh",
     "postinstall": "rm -rf node_modules/.prisma && prisma generate",
     "start": "next start",
     "lint": "eslint",
