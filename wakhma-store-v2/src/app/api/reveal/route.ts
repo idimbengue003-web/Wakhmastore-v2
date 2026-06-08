@@ -5,9 +5,9 @@ import { getRevealPrice } from '@/lib/constants'
 import { autoMigrate } from '@/lib/migrate'
 import { rateLimiters } from '@/lib/rate-limit'
 import { validateApi, revealSchema } from '@/lib/validations'
-import type { Demand, Reveal } from '@/generated/prisma'
+import type { DBDemand, DBReveal } from '@/lib/db'
 
-type DemandWithReveals = Demand & { reveals: Reveal[] }
+type DemandWithReveals = DBDemand & { reveals: DBReveal[] }
 
 export async function POST(request: Request) {
   try {

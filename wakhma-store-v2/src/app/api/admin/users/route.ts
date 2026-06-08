@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db, sql } from '@/lib/db'
 import { getSession } from '@/lib/auth'
 
 export async function GET(request: Request) {
@@ -17,27 +17,26 @@ export async function GET(request: Request) {
     const [users, total] = await Promise.all([
       db.user.findMany({
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          role: true,
-          points: true,
-          subscriptionTier: true,
-          createdAt: true,
-          _count: {
-            select: { demands: true, reveals: true },
-          },
-        },
         take: limit + 1,
         skip: cursor ? 1 : 0,
-        cursor: cursor ? { id: cursor } : undefined,
       }),
       db.user.count(),
     ])
 
-    const hasMore = users.length > limit
-    const paginatedUsers = hasMore ? users.slice(0, limit) : users
+    // Add demand and reveal counts for each user
+    const usersWithCounts = await Promise.all(users.map(async (u) => {
+      const [demandCount, revealCount] = await Promise.all([
+        sql`SELECT COUNT(*) as count FROM "Demand" WHERE "userId" = ${u.id}`.then(r => (r as any)[0]?.count || 0),
+        sql`SELECT COUNT(*) as count FROM "Reveal" WHERE "userId" = ${u.id}`.then(r => (r as any)[0]?.count || 0),
+      ])
+      return {
+        ...u,
+        _count: { demands: Number(demandCount), reveals: Number(revealCount) },
+      }
+    }))
+
+    const hasMore = usersWithCounts.length > limit
+    const paginatedUsers = hasMore ? usersWithCounts.slice(0, limit) : usersWithCounts
     const nextCursor = hasMore ? paginatedUsers[paginatedUsers.length - 1].id : null
 
     return NextResponse.json({ users: paginatedUsers, nextCursor, total })

@@ -5,9 +5,9 @@ import { maskPhonesInText, containsPhoneInText, maskPhone, VENDOR_ANNONCE_LIMITS
 import { autoMigrate } from '@/lib/migrate'
 import { rateLimiters } from '@/lib/rate-limit'
 import { validateApi, createDemandSchema } from '@/lib/validations'
-import type { Demand, User, Reveal } from '@/generated/prisma'
+import type { DBDemand, DBUser, DBReveal } from '@/lib/db'
 
-type DemandWithRelations = Demand & { user: User; reveals: Reveal[] }
+type DemandWithRelations = DBDemand & { user: DBUser; reveals: DBReveal[] }
 
 export async function GET(request: Request) {
   try {
